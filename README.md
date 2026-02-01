@@ -1,15 +1,14 @@
 Waveshare ESP32-S3 3.5" Weather Station Bring-up
 =================================================
 
-This repo is a Phase 0 bring-up for an ESP32-S3 board. It proves USB serial
-two-way communication and gives a steady heartbeat on the log.
+This repo is a bring-up playground for an ESP32-S3 board. It currently focuses on
+LCD bring-up with a trial harness.
 
 Features
 --------
 - ESP-IDF + Rust std setup
-- USB-Serial-JTAG RX/TX loop
-- Commands: `ping` + Enter -> `pong`, anything else -> `ping`
-- `alive` log once per second
+- USB-Serial-JTAG input for trial prompts
+- LCD trial harness (solid green, then box/X on success)
 
 Prereqs
 -------
@@ -30,16 +29,17 @@ source /home/david/export-esp.sh
 cargo +esp run -Zbuild-std=std,panic_abort
 ```
 
-Serial Test
------------
+Trial Flow
+----------
 1) Open the monitor (via `cargo +esp run ...`).
-2) Type `ping` and press Enter. Expect `pong`.
-3) Type any other text and press Enter. Expect `ping`.
+2) The firmware cycles through LCD init trials and draws solid green.
+3) Enter result: `p` / `b` / `n1` / `n2` when prompted.
+4) If `p`, it draws a blue box with a yellow X and asks again.
 
 Notes
 -----
-- USB-Serial-JTAG is used for RX/TX, not UART0.
-- `sdkconfig.defaults` sets `CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192`.
+- USB-Serial-JTAG is used for input, not UART0.
+- `sdkconfig.defaults` sets `CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384`.
 
 Troubleshooting
 ---------------

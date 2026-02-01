@@ -23,3 +23,8 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[package.metadata.esp-idf-sys]
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_lcd_axs15231b", version = "1.0.0" }
