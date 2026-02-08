@@ -66,49 +66,35 @@ extern "C" void app_main(void)
 
     i2c_master_bus_handle_t i2c_bus_handle = bsp_i2c_init();
 
+    // Keep only the minimum setup path for display graphics testing.
     bsp_axp2101_init(i2c_bus_handle);
-    bsp_qmi8658_init(i2c_bus_handle);
+    // bsp_qmi8658_init(i2c_bus_handle);
     // bsp_qmi8658_test();
 
-    bsp_pcf85063_init(i2c_bus_handle);
+    // bsp_pcf85063_init(i2c_bus_handle);
     // bsp_pcf85063_test();
     io_expander_init(i2c_bus_handle);
     bsp_display_init(&io_handle, &panel_handle, LCD_BUFFER_SIZE);
-    bsp_touch_init(i2c_bus_handle, EXAMPLE_LCD_H_RES, EXAMPLE_LCD_V_RES, 0);
-// bsp_camera_init(0);
-    bsp_wifi_init("WSTEST", "waveshare0755");
-// bsp_es8311_init(i2c_bus_handle);
-    bsp_sdcard_init();
+    // bsp_touch_init(i2c_bus_handle, EXAMPLE_LCD_H_RES, EXAMPLE_LCD_V_RES, 0);
+    // bsp_camera_init(0);
+    // bsp_wifi_init("WSTEST", "waveshare0755");
+    // bsp_es8311_init(i2c_bus_handle);
+    // bsp_sdcard_init();
     bsp_display_brightness_init();
     bsp_display_set_brightness(100);
 
     lv_port_init();
 
-    // button_init();
-    // touch_test();
-
-
-    
     if (lvgl_port_lock(0))
     {
         drawing_screen_init();
         lvgl_port_unlock();
     }
-    while (!canvas_exit)
-    {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
 
-    
-    if (lvgl_port_lock(0))
+    // Keep app_main alive for this graphics-only test mode.
+    while (true)
     {
-        lv_obj_del(canvas);
-        // drawing_screen_init();
-        // lv_demo_benchmark();
-        // lv_demo_music();
-        // lv_demo_widgets();
-        lvgl_ui_init();
-        lvgl_port_unlock();
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -177,11 +163,12 @@ void lv_port_init(void)
 
     // lvgl_touch_indev = lvgl_port_add_touch(&touch_cfg);
 
-    static lv_indev_drv_t indev_drv;
-    lv_indev_drv_init(&indev_drv);
-    indev_drv.type = LV_INDEV_TYPE_POINTER;
-    indev_drv.read_cb = touchpad_read;
-    lvgl_touch_indev = lv_indev_drv_register(&indev_drv);
+    // Touch input disabled for display-only graphics testing.
+    // static lv_indev_drv_t indev_drv;
+    // lv_indev_drv_init(&indev_drv);
+    // indev_drv.type = LV_INDEV_TYPE_POINTER;
+    // indev_drv.read_cb = touchpad_read;
+    // lvgl_touch_indev = lv_indev_drv_register(&indev_drv);
 }
 
 
