@@ -1,49 +1,63 @@
+#include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "nvs_flash.h"
-#include "nvs.h"
 
-#include "bsp_i2c.h"
-#include "bsp_qmi8658.h"
-#include "bsp_pcf85063.h"
-#include "bsp_display.h"
-#include "bsp_touch.h"
-#include "bsp_sdcard.h"
-#include "bsp_wifi.h"
-// #include "bsp_camera.h"
-// #include "bsp_es8311.h"
-#include "bsp_axp2101.h"
-
-#include "lv_port.h"
-
-#include "demos/lv_demos.h"
-#include "drawing_screen.h"
+#include "esp_crt_bundle.h"
+#include "esp_err.h"
+#include "esp_http_client.h"
 #include "esp_io_expander_tca9554.h"
-
-#include "lvgl_ui.h"
-#include "iot_button.h"
-#include "button_gpio.h"
 #include "esp_log.h"
 
-#define EXAMPLE_DISPLAY_ROTATION LV_DISP_ROT_NONE
+#include "cJSON.h"
+
+#include "bsp_axp2101.h"
+#include "bsp_display.h"
+#include "bsp_i2c.h"
+#include "bsp_wifi.h"
+#include "drawing_screen.h"
+#include "lv_port.h"
+
+#define EXAMPLE_DISPLAY_ROTATION LV_DISP_ROT_90
 #define EXAMPLE_LCD_H_RES 320
 #define EXAMPLE_LCD_V_RES 480
-#define LCD_BUFFER_SIZE EXAMPLE_LCD_H_RES *EXAMPLE_LCD_V_RES
+#define LCD_BUFFER_SIZE (EXAMPLE_LCD_H_RES * EXAMPLE_LCD_V_RES)
 
-esp_io_expander_handle_t expander_handle = NULL;
+#define WEATHER_HTTP_TIMEOUT_MS 15000
+#define WEATHER_HTTP_BUFFER_SIZE 4096
+#define WIFI_WAIT_TIMEOUT_MS 30000
 
-esp_lcd_panel_io_handle_t io_handle = NULL;
-esp_lcd_panel_handle_t panel_handle = NULL;
-esp_lcd_touch_handle_t touch_handle = NULL;
-lv_disp_drv_t disp_drv;
+#if __has_include("wifi_local.h")
+#include "wifi_local.h"
+#endif
 
-static lv_disp_t *lvgl_disp;
-static lv_indev_t *lvgl_touch_indev = NULL;
+#ifndef WIFI_SSID_LOCAL
+#define WIFI_SSID_LOCAL ""
+#endif
+
+#ifndef WIFI_PASS_LOCAL
+#define WIFI_PASS_LOCAL ""
+#endif
+
+#ifndef WEATHER_API_KEY_LOCAL
+#define WEATHER_API_KEY_LOCAL ""
+#endif
+
+#ifndef WEATHER_QUERY_LOCAL
+#define WEATHER_QUERY_LOCAL "q=New York,US"
+#endif
+
 static const char *TAG = "app_main";
 
-void button_init(void);
-void touch_test(void);
-void lv_port_init(void);
+static esp_io_expander_handle_t expander_handle = NULL;
+static esp_lcd_panel_io_handle_t io_handle = NULL;
+static esp_lcd_panel_handle_t panel_handle = NULL;
+static lv_disp_t *lvgl_disp = NULL;
 
 static bool lvgl_lock_with_retry(TickType_t timeout_ticks, int max_attempts, const char *reason)
 {
@@ -59,90 +73,62 @@ static bool lvgl_lock_with_retry(TickType_t timeout_ticks, int max_attempts, con
     return false;
 }
 
-void io_expander_init(i2c_master_bus_handle_t bus_handle)
+static void ui_set_status(const char *fmt, ...)
+{
+    char text[192] = {0};
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof(text), fmt, args);
+    va_end(args);
+
+    ESP_LOGI(TAG, "%s", text);
+    if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 6, "updating status"))
+    {
+        drawing_screen_set_status(text);
+        lvgl_port_unlock();
+    }
+}
+
+static void ui_set_weather(const char *fmt, ...)
+{
+    char text[320] = {0};
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof(text), fmt, args);
+    va_end(args);
+
+    if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 6, "updating weather text"))
+    {
+        drawing_screen_set_weather_text(text);
+        lvgl_port_unlock();
+    }
+}
+
+static void ui_set_temp_f(float temp_f)
+{
+    char temp_text[24] = {0};
+    snprintf(temp_text, sizeof(temp_text), "%d\xC2\xB0""F", (int)lroundf(temp_f));
+
+    if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 6, "updating temp text"))
+    {
+        drawing_screen_set_temp_text(temp_text);
+        lvgl_port_unlock();
+    }
+}
+
+static void io_expander_init(i2c_master_bus_handle_t bus_handle)
 {
     ESP_ERROR_CHECK(esp_io_expander_new_i2c_tca9554(bus_handle, ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000, &expander_handle));
     ESP_ERROR_CHECK(esp_io_expander_set_dir(expander_handle, IO_EXPANDER_PIN_NUM_1, IO_EXPANDER_OUTPUT));
-    // ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 1));
-    // vTaskDelay(pdMS_TO_TICKS(10));
     ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 0));
     vTaskDelay(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 1));
     vTaskDelay(pdMS_TO_TICKS(200));
 }
-bool touch_test_done = false;
-extern "C" void app_main(void)
-{
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
-    {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
 
-    i2c_master_bus_handle_t i2c_bus_handle = bsp_i2c_init();
-
-    // Keep only the minimum setup path for display graphics testing.
-    bsp_axp2101_init(i2c_bus_handle);
-    // bsp_qmi8658_init(i2c_bus_handle);
-    // bsp_qmi8658_test();
-
-    // bsp_pcf85063_init(i2c_bus_handle);
-    // bsp_pcf85063_test();
-    io_expander_init(i2c_bus_handle);
-    bsp_display_init(&io_handle, &panel_handle, LCD_BUFFER_SIZE);
-    // bsp_touch_init(i2c_bus_handle, EXAMPLE_LCD_H_RES, EXAMPLE_LCD_V_RES, 0);
-    // bsp_camera_init(0);
-    // bsp_wifi_init("WSTEST", "waveshare0755");
-    // bsp_es8311_init(i2c_bus_handle);
-    // bsp_sdcard_init();
-    bsp_display_brightness_init();
-    bsp_display_set_brightness(100);
-
-    lv_port_init();
-
-    if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 8, "initializing drawing screen"))
-    {
-        drawing_screen_init();
-        ESP_LOGI(TAG, "Drawing scene initialized");
-        lvgl_port_unlock();
-    }
-
-    // Keep app_main alive for this graphics-only test mode.
-    while (true)
-    {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
-static void touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
-{
-    static lv_coord_t last_x = 0;
-    static lv_coord_t last_y = 0;
-    touch_data_t touch_data;
-    /*Save the pressed coordinates and the state*/
-    bsp_touch_read();
-    if (bsp_touch_get_coordinates(&touch_data))
-    {
-        last_x = touch_data.coords[0].x;
-        last_y = touch_data.coords[0].y;
-        data->state = LV_INDEV_STATE_PR;
-        // printf("x: %d, y: %d\n", last_x, last_y);
-    }
-    else
-    {
-        data->state = LV_INDEV_STATE_REL;
-    }
-    /*Set the last pressed coordinates*/
-    data->point.x = last_x;
-    data->point.y = last_y;
-}
-
-void lv_port_init(void)
+static void lv_port_init_local(void)
 {
     lvgl_port_cfg_t port_cfg = {};
-
     port_cfg.task_priority = 4;
     port_cfg.task_stack = 1024 * 5;
     port_cfg.task_affinity = 1;
@@ -172,105 +158,284 @@ void lv_port_init(void)
         disp_cfg.hres = EXAMPLE_LCD_V_RES;
         disp_cfg.vres = EXAMPLE_LCD_H_RES;
     }
+
     lvgl_disp = lvgl_port_add_disp(&disp_cfg);
-
-    // lvgl_port_touch_cfg_t touch_cfg = {};
-    // touch_cfg.disp = lvgl_disp;
-    // touch_cfg.handle = touch_handle;
-    // touch_cfg.touch_wait_cb = NULL;
-
-    // lvgl_touch_indev = lvgl_port_add_touch(&touch_cfg);
-
-    // Touch input disabled for display-only graphics testing.
-    // static lv_indev_drv_t indev_drv;
-    // lv_indev_drv_init(&indev_drv);
-    // indev_drv.type = LV_INDEV_TYPE_POINTER;
-    // indev_drv.read_cb = touchpad_read;
-    // lvgl_touch_indev = lv_indev_drv_register(&indev_drv);
+    (void)lvgl_disp;
 }
 
-
-static void button_event_cb(void *arg, void *data)
+static bool wait_for_wifi_ip(char *ip_out, size_t ip_out_size)
 {
-    button_event_t event = iot_button_get_event((button_handle_t)arg);
-    // ESP_LOGI(TAG, "%s", iot_button_get_event_str(event));
-    touch_test_done = true;
-}
+    const int poll_ms = 500;
+    int waited_ms = 0;
 
-void button_init(void)
-{
-    button_config_t btn_cfg = {};
-    button_gpio_config_t btn_gpio_cfg = {};
-    btn_gpio_cfg.gpio_num = GPIO_NUM_0;
-    btn_gpio_cfg.active_level = 0;
-    static button_handle_t btn = NULL;
-    ESP_ERROR_CHECK(iot_button_new_gpio_device(&btn_cfg, &btn_gpio_cfg, &btn));
-    iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, NULL, button_event_cb, NULL);
-    // iot_button_register_cb(btn, BUTTON_LONG_PRESS_START, NULL, button_event_cb, NULL);
-    // iot_button_register_cb(btn, BUTTON_LONG_PRESS_HOLD, NULL, button_event_cb, NULL);
-    // iot_button_register_cb(btn, BUTTON_LONG_PRESS_UP, NULL, button_event_cb, NULL);
-    // iot_button_register_cb(btn, BUTTON_PRESS_END, NULL, button_event_cb, NULL);
-}
-
-void touch_test(void)
-{
-    uint16_t touchpad_x[1] = {0};
-    uint16_t touchpad_y[1] = {0};
-    uint8_t touchpad_cnt = 0;
-    uint16_t color_arr[16] = {0};
-    lv_obj_t *lable = NULL;
-
-    for (int i = 0; i < 16; i++)
+    while (waited_ms < WIFI_WAIT_TIMEOUT_MS)
     {
-        color_arr[i] = 0xf800;
-    }
-    if (lvgl_port_lock(0))
-    {
-        lable = lv_label_create(lv_scr_act());
-        lv_label_set_text(lable, "Touch testing mode \nExit with BOOT button");
-        lv_obj_center(lable);
-        lvgl_port_unlock();
-    }
-    vTaskDelay(pdMS_TO_TICKS(500));
-    touch_data_t touch_data;
-    uint16_t *lcd_buffer = (uint16_t *)heap_caps_malloc(EXAMPLE_LCD_H_RES * EXAMPLE_LCD_V_RES * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-    if (lvgl_port_lock(0))
-    {
-
-        while (!touch_test_done)
+        char ip[32] = {0};
+        bsp_wifi_get_ip(ip);
+        if (ip[0] != '\0' && strcmp(ip, "0.0.0.0") != 0)
         {
-            /* Read data from touch controller into memory */
-            bsp_touch_read();
-
-            /* Read data from touch controller */
-            if (bsp_touch_get_coordinates(&touch_data))
-            {
-                // touchpad_x[0] = EXAMPLE_LCD_H_RES - 1 - touchpad_x[0];
-
-                if (touch_data.coords[0].x < 2)
-                    touch_data.coords[0].x = 2;
-                else if (touch_data.coords[0].x > EXAMPLE_LCD_H_RES - 2 - 1)
-                    touch_data.coords[0].x = EXAMPLE_LCD_H_RES - 2 - 1;
-
-                if (touch_data.coords[0].y < 2)
-                    touch_data.coords[0].y = 2;
-                else if (touch_data.coords[0].y > EXAMPLE_LCD_V_RES - 2 - 1)
-                    touch_data.coords[0].y = EXAMPLE_LCD_V_RES - 2 - 1;
-
-                for (int i = 0; i < 2; i++)
-                {
-                    for (int j = 0; j < 2; j++)
-                    {
-                        lcd_buffer[(touch_data.coords[0].y + j) * EXAMPLE_LCD_H_RES + touch_data.coords[0].x + i] = 0xF800;
-                    }
-                }
-                esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, EXAMPLE_LCD_H_RES, EXAMPLE_LCD_V_RES, lcd_buffer);
-                // esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, EXAMPLE_LCD_H_RES - 1, EXAMPLE_LCD_V_RES - 1, lcd_buffer);
-            }
-            vTaskDelay(pdMS_TO_TICKS(10));
+            snprintf(ip_out, ip_out_size, "%s", ip);
+            return true;
         }
-        heap_caps_free(lcd_buffer);
-        lv_obj_del(lable);
+
+        if ((waited_ms % 5000) == 0)
+        {
+            ui_set_status("wifi: connecting... %d s", waited_ms / 1000);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(poll_ms));
+        waited_ms += poll_ms;
+    }
+
+    return false;
+}
+
+static esp_err_t http_get_text(const char *url, char *response_buf, size_t response_buf_size, int *status_code, int *bytes_read)
+{
+    if (response_buf_size == 0)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    response_buf[0] = '\0';
+    if (status_code)
+    {
+        *status_code = 0;
+    }
+    if (bytes_read)
+    {
+        *bytes_read = 0;
+    }
+
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.method = HTTP_METHOD_GET;
+    config.timeout_ms = WEATHER_HTTP_TIMEOUT_MS;
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+    config.user_agent = "waveshare-s3-weather-test/1.0";
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL)
+    {
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK)
+    {
+        esp_http_client_cleanup(client);
+        return err;
+    }
+
+    (void)esp_http_client_fetch_headers(client);
+    if (status_code)
+    {
+        *status_code = esp_http_client_get_status_code(client);
+    }
+
+    int total = 0;
+    while (total < (int)response_buf_size - 1)
+    {
+        int n = esp_http_client_read(client, response_buf + total, (int)response_buf_size - 1 - total);
+        if (n < 0)
+        {
+            err = ESP_FAIL;
+            break;
+        }
+        if (n == 0)
+        {
+            break;
+        }
+        total += n;
+    }
+    response_buf[total] = '\0';
+
+    if (bytes_read)
+    {
+        *bytes_read = total;
+    }
+
+    if (total >= (int)response_buf_size - 1)
+    {
+        err = ESP_ERR_NO_MEM;
+    }
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return err;
+}
+
+static bool parse_weather_json(const char *json_text, char *weather_text, size_t weather_text_size, float *temp_f_out)
+{
+    cJSON *root = cJSON_Parse(json_text);
+    if (root == NULL)
+    {
+        return false;
+    }
+
+    cJSON *main_obj = cJSON_GetObjectItemCaseSensitive(root, "main");
+    cJSON *weather_arr = cJSON_GetObjectItemCaseSensitive(root, "weather");
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
+    cJSON *sys_obj = cJSON_GetObjectItemCaseSensitive(root, "sys");
+
+    cJSON *temp = (main_obj != NULL) ? cJSON_GetObjectItemCaseSensitive(main_obj, "temp") : NULL;
+    cJSON *feels = (main_obj != NULL) ? cJSON_GetObjectItemCaseSensitive(main_obj, "feels_like") : NULL;
+    cJSON *humidity = (main_obj != NULL) ? cJSON_GetObjectItemCaseSensitive(main_obj, "humidity") : NULL;
+
+    cJSON *country = (sys_obj != NULL) ? cJSON_GetObjectItemCaseSensitive(sys_obj, "country") : NULL;
+    cJSON *weather0 = (weather_arr != NULL && cJSON_IsArray(weather_arr)) ? cJSON_GetArrayItem(weather_arr, 0) : NULL;
+    cJSON *desc = (weather0 != NULL) ? cJSON_GetObjectItemCaseSensitive(weather0, "description") : NULL;
+
+    if (!cJSON_IsNumber(temp))
+    {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    float temp_f = (float)temp->valuedouble;
+    float feels_f = cJSON_IsNumber(feels) ? (float)feels->valuedouble : temp_f;
+    int hum = cJSON_IsNumber(humidity) ? humidity->valueint : -1;
+
+    const char *city = cJSON_IsString(name) ? name->valuestring : "?";
+    const char *country_code = cJSON_IsString(country) ? country->valuestring : "";
+    const char *cond = cJSON_IsString(desc) ? desc->valuestring : "(no condition)";
+
+    if (hum >= 0)
+    {
+        snprintf(weather_text, weather_text_size,
+                 "weather: %s %s\ncond: %s\ntemp: %.1fF feels %.1fF hum:%d%%",
+                 city, country_code, cond, temp_f, feels_f, hum);
+    }
+    else
+    {
+        snprintf(weather_text, weather_text_size,
+                 "weather: %s %s\ncond: %s\ntemp: %.1fF feels %.1fF",
+                 city, country_code, cond, temp_f, feels_f);
+    }
+
+    if (temp_f_out)
+    {
+        *temp_f_out = temp_f;
+    }
+
+    cJSON_Delete(root);
+    return true;
+}
+
+static void weather_task(void *arg)
+{
+    (void)arg;
+
+    if (strlen(WIFI_SSID_LOCAL) == 0 || strlen(WIFI_PASS_LOCAL) == 0 || strlen(WEATHER_API_KEY_LOCAL) == 0)
+    {
+        ui_set_status("config: missing wifi_local.h values");
+        ui_set_weather("weather: set WIFI_SSID_LOCAL, WIFI_PASS_LOCAL, WEATHER_API_KEY_LOCAL");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ui_set_status("wifi: init");
+    bsp_wifi_init(WIFI_SSID_LOCAL, WIFI_PASS_LOCAL);
+    ui_set_status("wifi: connect -> %s", WIFI_SSID_LOCAL);
+
+    char ip[32] = {0};
+    if (!wait_for_wifi_ip(ip, sizeof(ip)))
+    {
+        ui_set_status("wifi: timeout waiting for IP");
+        ui_set_weather("weather: skipped (no network)");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ui_set_status("wifi: connected ip %s", ip);
+    ui_set_weather("weather: requesting...");
+
+    char url[512] = {0};
+    int url_len = snprintf(url, sizeof(url),
+                           "https://api.openweathermap.org/data/2.5/weather?%s&units=imperial&appid=%s",
+                           WEATHER_QUERY_LOCAL, WEATHER_API_KEY_LOCAL);
+    if (url_len <= 0 || url_len >= (int)sizeof(url))
+    {
+        ui_set_status("http: url build failed");
+        ui_set_weather("weather: internal URL error");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ui_set_status("http: GET weather (%s)", WEATHER_QUERY_LOCAL);
+
+    char response[WEATHER_HTTP_BUFFER_SIZE] = {0};
+    int http_status = 0;
+    int http_bytes = 0;
+    esp_err_t err = http_get_text(url, response, sizeof(response), &http_status, &http_bytes);
+
+    if (err != ESP_OK)
+    {
+        ui_set_status("http: transport error %s", esp_err_to_name(err));
+        ui_set_weather("weather: transport failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ui_set_status("http: status %d bytes %d", http_status, http_bytes);
+    if (http_status != 200)
+    {
+        ui_set_weather("weather: API status %d", http_status);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    char weather_text[320] = {0};
+    float temp_f = 0.0f;
+    if (!parse_weather_json(response, weather_text, sizeof(weather_text), &temp_f))
+    {
+        ui_set_status("json: parse failed");
+        ui_set_weather("weather: JSON parse failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ui_set_weather("%s", weather_text);
+    ui_set_temp_f(temp_f);
+    ui_set_status("done: weather updated from network");
+
+    vTaskDelete(NULL);
+}
+
+extern "C" void app_main(void)
+{
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    i2c_master_bus_handle_t i2c_bus_handle = bsp_i2c_init();
+
+    bsp_axp2101_init(i2c_bus_handle);
+    io_expander_init(i2c_bus_handle);
+
+    bsp_display_init(&io_handle, &panel_handle, LCD_BUFFER_SIZE);
+    bsp_display_brightness_init();
+    bsp_display_set_brightness(100);
+
+    lv_port_init_local();
+
+    if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 8, "initializing drawing screen"))
+    {
+        drawing_screen_init();
+        drawing_screen_set_status("status: boot complete");
+        drawing_screen_set_weather_text("weather: waiting for WiFi...");
+        ESP_LOGI(TAG, "Drawing scene initialized");
         lvgl_port_unlock();
+    }
+
+    xTaskCreatePinnedToCore(weather_task, "weather_task", 1024 * 10, NULL, 3, NULL, 1);
+
+    while (true)
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
