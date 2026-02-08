@@ -1,0 +1,9 @@
+{
+  "tag": "ui16",
+  "px": 16,
+  "bold": false,
+  "cell_w": 18,
+  "cell_h": 16,
+  "cols": 16,
+  "glyphs": "0123456789.-\u00b0FC:%AMP/ abcdefghijklmnopqrstuvwxyzBDEGHIJKLNOQRSTUVWXYZ"
+}

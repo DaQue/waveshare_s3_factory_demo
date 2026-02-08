@@ -1,0 +1,9 @@
+{
+  "tag": "temp48_bold",
+  "px": 48,
+  "bold": true,
+  "cell_w": 56,
+  "cell_h": 43,
+  "cols": 16,
+  "glyphs": "0123456789.-\u00b0FC:%AMP/ abcdefghijklmnopqrstuvwxyzBDEGHIJKLNOQRSTUVWXYZ"
+}

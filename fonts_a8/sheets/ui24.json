@@ -1,0 +1,9 @@
+{
+  "tag": "ui24",
+  "px": 24,
+  "bold": false,
+  "cell_w": 25,
+  "cell_h": 22,
+  "cols": 16,
+  "glyphs": "0123456789.-\u00b0FC:%AMP/ abcdefghijklmnopqrstuvwxyzBDEGHIJKLNOQRSTUVWXYZ"
+}

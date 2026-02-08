@@ -1,0 +1,9 @@
+{
+  "tag": "ui32",
+  "px": 32,
+  "bold": false,
+  "cell_w": 32,
+  "cell_h": 27,
+  "cols": 16,
+  "glyphs": "0123456789.-\u00b0FC:%AMP/ abcdefghijklmnopqrstuvwxyzBDEGHIJKLNOQRSTUVWXYZ"
+}

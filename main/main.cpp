@@ -23,6 +23,7 @@
 #include "lvgl_ui.h"
 #include "iot_button.h"
 #include "button_gpio.h"
+#include "esp_log.h"
 
 #define EXAMPLE_DISPLAY_ROTATION LV_DISP_ROT_NONE
 #define EXAMPLE_LCD_H_RES 320
@@ -38,10 +39,25 @@ lv_disp_drv_t disp_drv;
 
 static lv_disp_t *lvgl_disp;
 static lv_indev_t *lvgl_touch_indev = NULL;
+static const char *TAG = "app_main";
 
 void button_init(void);
 void touch_test(void);
 void lv_port_init(void);
+
+static bool lvgl_lock_with_retry(TickType_t timeout_ticks, int max_attempts, const char *reason)
+{
+    for (int attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        if (lvgl_port_lock(timeout_ticks))
+        {
+            return true;
+        }
+        ESP_LOGW(TAG, "LVGL lock timeout while %s (attempt %d/%d)", reason, attempt, max_attempts);
+    }
+    ESP_LOGE(TAG, "Failed to acquire LVGL lock while %s", reason);
+    return false;
+}
 
 void io_expander_init(i2c_master_bus_handle_t bus_handle)
 {
@@ -63,6 +79,7 @@ extern "C" void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
+    ESP_ERROR_CHECK(ret);
 
     i2c_master_bus_handle_t i2c_bus_handle = bsp_i2c_init();
 
@@ -85,9 +102,10 @@ extern "C" void app_main(void)
 
     lv_port_init();
 
-    if (lvgl_port_lock(0))
+    if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 8, "initializing drawing screen"))
     {
         drawing_screen_init();
+        ESP_LOGI(TAG, "Drawing scene initialized");
         lvgl_port_unlock();
     }
 
