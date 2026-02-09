@@ -20,6 +20,7 @@
 #include "bsp_axp2101.h"
 #include "bsp_display.h"
 #include "bsp_i2c.h"
+#include "bsp_touch.h"
 #include "bsp_wifi.h"
 #include "drawing_screen.h"
 #include "lv_port.h"
@@ -35,8 +36,11 @@
 
 #define WEATHER_REFRESH_MS (10 * 60 * 1000)
 #define WEATHER_RETRY_MS (30 * 1000)
-#define SCREEN_SWITCH_MS (12 * 1000)
-#define UI_TICK_MS 250
+#define UI_TICK_MS 100
+
+#define TOUCH_SWIPE_MIN_X_PX 64
+#define TOUCH_SWIPE_MAX_Y_PX 80
+#define TOUCH_SWIPE_COOLDOWN_MS 300
 
 #if __has_include("wifi_local.h")
 #include "wifi_local.h"
@@ -95,6 +99,17 @@ typedef struct {
 } app_state_t;
 
 static app_state_t g_app = {};
+
+typedef struct {
+    bool pressed;
+    int16_t start_x;
+    int16_t start_y;
+    int16_t last_x;
+    int16_t last_y;
+    uint32_t last_swipe_ms;
+} touch_swipe_state_t;
+
+static touch_swipe_state_t g_touch_swipe = {};
 
 static bool lvgl_lock_with_retry(TickType_t timeout_ticks, int max_attempts, const char *reason)
 {
@@ -213,6 +228,71 @@ static void app_set_screen(drawing_screen_view_t view)
     }
 }
 
+static uint16_t display_rotation_to_touch_rotation(lv_disp_rot_t display_rotation)
+{
+    switch (display_rotation)
+    {
+    case LV_DISP_ROT_90:
+        return 1;
+    case LV_DISP_ROT_180:
+        return 2;
+    case LV_DISP_ROT_270:
+        return 3;
+    case LV_DISP_ROT_NONE:
+    default:
+        return 0;
+    }
+}
+
+static void app_poll_touch_swipe(uint32_t now_ms)
+{
+    touch_data_t touch_data = {};
+    bsp_touch_read();
+    bool is_pressed = bsp_touch_get_coordinates(&touch_data);
+
+    if (is_pressed)
+    {
+        int16_t x = (int16_t)touch_data.coords[0].x;
+        int16_t y = (int16_t)touch_data.coords[0].y;
+
+        if (!g_touch_swipe.pressed)
+        {
+            g_touch_swipe.pressed = true;
+            g_touch_swipe.start_x = x;
+            g_touch_swipe.start_y = y;
+        }
+
+        g_touch_swipe.last_x = x;
+        g_touch_swipe.last_y = y;
+        return;
+    }
+
+    if (!g_touch_swipe.pressed)
+    {
+        return;
+    }
+
+    int delta_x = (int)g_touch_swipe.last_x - (int)g_touch_swipe.start_x;
+    int delta_y = (int)g_touch_swipe.last_y - (int)g_touch_swipe.start_y;
+    int abs_delta_x = (delta_x >= 0) ? delta_x : -delta_x;
+    int abs_delta_y = (delta_y >= 0) ? delta_y : -delta_y;
+    g_touch_swipe.pressed = false;
+
+    if ((uint32_t)(now_ms - g_touch_swipe.last_swipe_ms) < TOUCH_SWIPE_COOLDOWN_MS)
+    {
+        return;
+    }
+
+    if (abs_delta_x < TOUCH_SWIPE_MIN_X_PX || abs_delta_y > TOUCH_SWIPE_MAX_Y_PX || abs_delta_y >= abs_delta_x)
+    {
+        return;
+    }
+
+    g_touch_swipe.last_swipe_ms = now_ms;
+    drawing_screen_view_t next_view = (g_app.view == DRAWING_SCREEN_VIEW_NOW) ? DRAWING_SCREEN_VIEW_FORECAST : DRAWING_SCREEN_VIEW_NOW;
+    app_set_screen(next_view);
+}
+
 static void app_build_forecast_skeleton(void)
 {
     snprintf(g_app.forecast_title_text, sizeof(g_app.forecast_title_text),
@@ -256,6 +336,7 @@ static void app_apply_weather(const weather_payload_t *wx)
 static void app_state_init_defaults(void)
 {
     memset(&g_app, 0, sizeof(g_app));
+    memset(&g_touch_swipe, 0, sizeof(g_touch_swipe));
 
     g_app.view = DRAWING_SCREEN_VIEW_NOW;
     g_app.forecast_page = 0;
@@ -269,7 +350,7 @@ static void app_state_init_defaults(void)
     snprintf(g_app.stats_line_1, sizeof(g_app.stats_line_1), "Feels --");
     snprintf(g_app.stats_line_2, sizeof(g_app.stats_line_2), "Humidity --");
     snprintf(g_app.stats_line_3, sizeof(g_app.stats_line_3), "Pressure --");
-    snprintf(g_app.bottom_text, sizeof(g_app.bottom_text), "Landscape weather test");
+    snprintf(g_app.bottom_text, sizeof(g_app.bottom_text), "Swipe left/right to switch views");
 
     app_build_forecast_skeleton();
     app_mark_dirty(true, true, true, true);
@@ -538,7 +619,6 @@ static void weather_task(void *arg)
 
     TickType_t loop_tick = xTaskGetTickCount();
     uint32_t last_time_sec = UINT32_MAX;
-    uint32_t last_screen_switch_ms = 0;
     uint32_t next_weather_sync_ms = 0;
 
     if (strlen(WIFI_SSID_LOCAL) == 0 || strlen(WIFI_PASS_LOCAL) == 0 || strlen(WEATHER_API_KEY_LOCAL) == 0)
@@ -579,7 +659,6 @@ static void weather_task(void *arg)
     app_render_if_dirty();
 
     next_weather_sync_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
-    last_screen_switch_ms = next_weather_sync_ms;
 
     while (true)
     {
@@ -592,20 +671,7 @@ static void weather_task(void *arg)
             app_update_uptime_time(now_sec);
         }
 
-        if ((uint32_t)(now_ms - last_screen_switch_ms) >= SCREEN_SWITCH_MS)
-        {
-            last_screen_switch_ms = now_ms;
-            if (g_app.view == DRAWING_SCREEN_VIEW_NOW)
-            {
-                g_app.forecast_page = (uint8_t)((g_app.forecast_page + 1U) % 3U);
-                app_set_screen(DRAWING_SCREEN_VIEW_FORECAST);
-            }
-            else
-            {
-                app_set_screen(DRAWING_SCREEN_VIEW_NOW);
-            }
-            app_build_forecast_skeleton();
-        }
+        app_poll_touch_swipe(now_ms);
 
         if ((int32_t)(now_ms - next_weather_sync_ms) >= 0)
         {
@@ -634,6 +700,14 @@ extern "C" void app_main(void)
     io_expander_init(i2c_bus_handle);
 
     bsp_display_init(&io_handle, &panel_handle, LCD_BUFFER_SIZE);
+    uint16_t touch_w = EXAMPLE_LCD_H_RES;
+    uint16_t touch_h = EXAMPLE_LCD_V_RES;
+    if (EXAMPLE_DISPLAY_ROTATION != LV_DISP_ROT_180 && EXAMPLE_DISPLAY_ROTATION != LV_DISP_ROT_NONE)
+    {
+        touch_w = EXAMPLE_LCD_V_RES;
+        touch_h = EXAMPLE_LCD_H_RES;
+    }
+    bsp_touch_init(i2c_bus_handle, touch_w, touch_h, display_rotation_to_touch_rotation(EXAMPLE_DISPLAY_ROTATION));
     bsp_display_brightness_init();
     bsp_display_set_brightness(100);
 

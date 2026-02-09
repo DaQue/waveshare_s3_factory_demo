@@ -17,11 +17,8 @@ touch_data_t g_touch_data;
 
 void bsp_touch_read(void)
 {
-    uint8_t data_err_cnt = 0;
     uint8_t data[14] = {0}; /*1 Point:8;  2 Point: 14 */
     uint8_t read_cmd[11] = {0xb5, 0xab, 0xa5, 0x5a, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00};
-    uint16_t temp_x = 0;
-    uint16_t temp_y = 0;
     esp_err_t err = ESP_OK;
     if (bsp_i2c_lock(0))
     {
@@ -31,10 +28,12 @@ void bsp_touch_read(void)
         bsp_i2c_unlock();
         if (err != ESP_OK)
         {
+            g_touch_data.touch_num = 0;
             return;
         }
         // printf("Received: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
         if (data[1] == 0 || data[2] == 0 || data[3] < 2 || data[5] < 2 ) {
+            g_touch_data.touch_num = 0;
             return ;
         }
         
