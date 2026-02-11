@@ -9,10 +9,31 @@
 extern lv_obj_t *canvas;
 extern bool canvas_exit;
 
+#define DRAWING_SCREEN_FORECAST_ROWS 4
+
 typedef enum {
     DRAWING_SCREEN_VIEW_NOW = 0,
     DRAWING_SCREEN_VIEW_FORECAST = 1,
+    DRAWING_SCREEN_VIEW_I2C_SCAN = 2,
+    DRAWING_SCREEN_VIEW_WIFI_SCAN = 3,
 } drawing_screen_view_t;
+
+typedef enum {
+    DRAWING_WEATHER_ICON_CLEAR_DAY = 0,
+    DRAWING_WEATHER_ICON_CLEAR_NIGHT,
+    DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY,
+    DRAWING_WEATHER_ICON_FEW_CLOUDS_NIGHT,
+    DRAWING_WEATHER_ICON_CLOUDS,
+    DRAWING_WEATHER_ICON_OVERCAST,
+    DRAWING_WEATHER_ICON_SHOWER_RAIN,
+    DRAWING_WEATHER_ICON_RAIN,
+    DRAWING_WEATHER_ICON_THUNDERSTORM,
+    DRAWING_WEATHER_ICON_SNOW,
+    DRAWING_WEATHER_ICON_SLEET,
+    DRAWING_WEATHER_ICON_MIST,
+    DRAWING_WEATHER_ICON_FOG,
+    DRAWING_WEATHER_ICON_COUNT,
+} drawing_weather_icon_t;
 
 typedef struct {
     bool header;
@@ -33,8 +54,19 @@ typedef struct {
     const char *stats_line_1;
     const char *stats_line_2;
     const char *stats_line_3;
+    const char *indoor_line_1;
+    const char *indoor_line_2;
+    const char *indoor_line_3;
+    drawing_weather_icon_t now_icon;
     const char *forecast_title_text;
     const char *forecast_body_text;
+    const char *forecast_preview_text;
+    const char *forecast_row_title[DRAWING_SCREEN_FORECAST_ROWS];
+    const char *forecast_row_detail[DRAWING_SCREEN_FORECAST_ROWS];
+    const char *forecast_row_temp[DRAWING_SCREEN_FORECAST_ROWS];
+    drawing_weather_icon_t forecast_row_icon[DRAWING_SCREEN_FORECAST_ROWS];
+    const char *i2c_scan_text;
+    const char *wifi_scan_text;
     const char *bottom_text;
 } drawing_screen_data_t;
 

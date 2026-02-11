@@ -12,4 +12,16 @@ idf_component_register(
         lvgl__lvgl
     EMBED_FILES
         "assets/clear_day_128.rgb565"
+        "assets/clear_night_128.rgb565"
+        "assets/few_clouds_day_128.rgb565"
+        "assets/few_clouds_night_128.rgb565"
+        "assets/clouds_128.rgb565"
+        "assets/overcast_128.rgb565"
+        "assets/shower_rain_128.rgb565"
+        "assets/rain_128.rgb565"
+        "assets/thunderstorm_128.rgb565"
+        "assets/snow_128.rgb565"
+        "assets/sleet_128.rgb565"
+        "assets/mist_128.rgb565"
+        "assets/fog_128.rgb565"
 )

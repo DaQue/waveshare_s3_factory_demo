@@ -1,4 +1,6 @@
-file(GLOB_RECURSE SRC_FILES  "*.c" "*.cpp")
+file(GLOB_RECURSE SRC_FILES "*.c" "*.cpp")
+list(APPEND SRC_FILES "bsp_bme280.c")
+list(REMOVE_DUPLICATES SRC_FILES)
 
 idf_component_register(SRCS ${SRC_FILES}
                     INCLUDE_DIRS "."
