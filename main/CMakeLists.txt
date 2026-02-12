@@ -5,6 +5,7 @@ idf_component_register(
         nvs_flash
         esp_bsp
         esp_lv_port
+        esp-tls
         esp_http_client
         json
         mbedtls
@@ -24,4 +25,6 @@ idf_component_register(
         "assets/sleet_128.rgb565"
         "assets/mist_128.rgb565"
         "assets/fog_128.rgb565"
+    EMBED_TXTFILES
+        "certs/openweather_trust_chain.pem"
 )

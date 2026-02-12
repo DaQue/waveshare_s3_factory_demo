@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stddef.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -10,11 +11,12 @@
 
 #include "nvs_flash.h"
 
-#include "esp_crt_bundle.h"
 #include "esp_err.h"
+#include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_io_expander_tca9554.h"
 #include "esp_log.h"
+#include "esp_sntp.h"
 
 #include "cJSON.h"
 
@@ -39,6 +41,8 @@
 
 #define WEATHER_REFRESH_MS (10 * 60 * 1000)
 #define WEATHER_RETRY_MS (30 * 1000)
+#define NTP_SYNC_TIMEOUT_MS 20000
+#define NTP_SYNC_POLL_MS 250
 #define BME280_REFRESH_MS 5000
 #define I2C_SCAN_REFRESH_MS 10000
 #define WIFI_SCAN_REFRESH_MS 15000
@@ -46,11 +50,15 @@
 
 #define TOUCH_SWIPE_MIN_X_PX 64
 #define TOUCH_SWIPE_MAX_Y_PX 80
+#define TOUCH_SWIPE_MIN_Y_PX 48
+#define TOUCH_SWIPE_MAX_X_PX 96
 #define TOUCH_SWIPE_COOLDOWN_MS 300
+#define TOUCH_TAP_MAX_MOVE_PX 18
 
 #define APP_FORECAST_ROWS DRAWING_SCREEN_FORECAST_ROWS
 #define APP_PREVIEW_DAYS 3
 #define APP_FORECAST_MAX_DAYS 8
+#define APP_FORECAST_HOURLY_MAX 12
 #define APP_WIFI_SCAN_MAX_APS 12
 #define APP_WIFI_SCAN_VISIBLE_APS 8
 
@@ -74,7 +82,17 @@
 #define WEATHER_QUERY_LOCAL "q=New York,US"
 #endif
 
+#ifndef LOCAL_TIMEZONE_TZ
+#define LOCAL_TIMEZONE_TZ "CST6CDT,M3.2.0/2,M11.1.0/2"
+#endif
+
+extern "C" {
+extern const uint8_t openweather_trust_chain_pem_start[] asm("_binary_openweather_trust_chain_pem_start");
+extern const uint8_t openweather_trust_chain_pem_end[] asm("_binary_openweather_trust_chain_pem_end");
+}
+
 static const char *TAG = "app_main";
+static const char *OPENWEATHER_CA_CERT_PEM = reinterpret_cast<const char *>(openweather_trust_chain_pem_start);
 
 static esp_io_expander_handle_t expander_handle = NULL;
 static esp_lcd_panel_io_handle_t io_handle = NULL;
@@ -105,7 +123,24 @@ typedef struct {
 } forecast_row_payload_t;
 
 typedef struct {
+    int temp_f;
+    int feels_f;
+    int wind_mph;
+    drawing_weather_icon_t icon;
+    char time_text[24];
+    char detail[48];
+    char temp_text[12];
+} forecast_hourly_payload_t;
+
+typedef struct {
+    uint8_t count;
+    forecast_hourly_payload_t entries[APP_FORECAST_HOURLY_MAX];
+} forecast_day_payload_t;
+
+typedef struct {
+    uint8_t row_count;
     forecast_row_payload_t rows[APP_FORECAST_ROWS];
+    forecast_day_payload_t days[APP_FORECAST_ROWS];
     char preview_text[96];
 } forecast_payload_t;
 
@@ -114,6 +149,7 @@ typedef struct {
     uint8_t forecast_page;
     bool has_weather;
     char time_text[16];
+    char now_time_text[16];
     char status_text[96];
     char temp_text[24];
     char condition_text[96];
@@ -128,10 +164,20 @@ typedef struct {
     char forecast_title_text[96];
     char forecast_body_text[220];
     char forecast_preview_text[96];
+    uint8_t forecast_row_count;
     char forecast_row_title[APP_FORECAST_ROWS][24];
     char forecast_row_detail[APP_FORECAST_ROWS][48];
     char forecast_row_temp[APP_FORECAST_ROWS][12];
     drawing_weather_icon_t forecast_row_icon[APP_FORECAST_ROWS];
+    bool forecast_hourly_open;
+    uint8_t forecast_hourly_day;
+    uint8_t forecast_hourly_offset;
+    uint8_t forecast_hourly_count;
+    char forecast_hourly_day_title[24];
+    char forecast_hourly_time[APP_FORECAST_ROWS][24];
+    char forecast_hourly_detail[APP_FORECAST_ROWS][48];
+    char forecast_hourly_temp[APP_FORECAST_ROWS][12];
+    drawing_weather_icon_t forecast_hourly_icon[APP_FORECAST_ROWS];
     char i2c_scan_text[640];
     char wifi_scan_text[1024];
     char bottom_text[96];
@@ -139,6 +185,7 @@ typedef struct {
 } app_state_t;
 
 static app_state_t g_app = {};
+static forecast_payload_t g_forecast_cache = {};
 
 typedef struct {
     bool pressed;
@@ -150,6 +197,8 @@ typedef struct {
 } touch_swipe_state_t;
 
 static touch_swipe_state_t g_touch_swipe = {};
+static bool g_wifi_connected = false;
+static uint32_t g_wifi_connected_ms = 0;
 
 static const char *WEEKDAY_SHORT[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
@@ -202,8 +251,12 @@ static void app_render_if_dirty(void)
     drawing_screen_data_t data = {};
     data.view = g_app.view;
     data.forecast_page = g_app.forecast_page;
+    data.forecast_hourly_open = g_app.forecast_hourly_open;
+    data.forecast_hourly_offset = g_app.forecast_hourly_offset;
+    data.forecast_hourly_count = g_app.forecast_hourly_count;
     data.has_weather = g_app.has_weather;
     data.time_text = g_app.time_text;
+    data.now_time_text = g_app.now_time_text;
     data.status_text = g_app.status_text;
     data.temp_text = g_app.temp_text;
     data.condition_text = g_app.condition_text;
@@ -224,7 +277,12 @@ static void app_render_if_dirty(void)
         data.forecast_row_detail[i] = g_app.forecast_row_detail[i];
         data.forecast_row_temp[i] = g_app.forecast_row_temp[i];
         data.forecast_row_icon[i] = g_app.forecast_row_icon[i];
+        data.forecast_hourly_time[i] = g_app.forecast_hourly_time[i];
+        data.forecast_hourly_detail[i] = g_app.forecast_hourly_detail[i];
+        data.forecast_hourly_temp[i] = g_app.forecast_hourly_temp[i];
+        data.forecast_hourly_icon[i] = g_app.forecast_hourly_icon[i];
     }
+    data.forecast_hourly_day_title = g_app.forecast_hourly_day_title;
     data.i2c_scan_text = g_app.i2c_scan_text;
     data.wifi_scan_text = g_app.wifi_scan_text;
     data.bottom_text = g_app.bottom_text;
@@ -260,13 +318,65 @@ static void app_set_bottom_fmt(const char *fmt, ...)
     app_mark_dirty(false, false, false, true);
 }
 
-static void app_update_uptime_time(uint32_t uptime_seconds)
+static bool app_format_local_time(char *out, size_t out_size)
+{
+    if (out == NULL || out_size == 0)
+    {
+        return false;
+    }
+
+    time_t now = 0;
+    time(&now);
+
+    struct tm tm_local = {};
+    localtime_r(&now, &tm_local);
+    if (tm_local.tm_year < (2024 - 1900))
+    {
+        snprintf(out, out_size, "--:--");
+        return false;
+    }
+
+    if (strftime(out, out_size, "%I:%M %p", &tm_local) == 0)
+    {
+        snprintf(out, out_size, "--:--");
+        return false;
+    }
+
+    if (out[0] == '0')
+    {
+        memmove(out, out + 1, strlen(out));
+    }
+
+    return true;
+}
+
+static void app_update_local_time(void)
 {
     char next[16] = {0};
-    uint32_t hours = (uptime_seconds / 3600U) % 24U;
-    uint32_t minutes = (uptime_seconds / 60U) % 60U;
-    uint32_t seconds = uptime_seconds % 60U;
-    snprintf(next, sizeof(next), "%02u:%02u:%02u", (unsigned)hours, (unsigned)minutes, (unsigned)seconds);
+    (void)app_format_local_time(next, sizeof(next));
+
+    if (strcmp(next, g_app.now_time_text) != 0)
+    {
+        snprintf(g_app.now_time_text, sizeof(g_app.now_time_text), "%s", next);
+        app_mark_dirty(true, false, false, false);
+    }
+}
+
+static void app_update_connect_time(uint32_t now_ms)
+{
+    uint32_t elapsed_sec = 0;
+    if (g_wifi_connected)
+    {
+        elapsed_sec = (now_ms - g_wifi_connected_ms) / 1000U;
+    }
+
+    uint32_t hours = (elapsed_sec / 3600U) % 100U;
+    uint32_t minutes = (elapsed_sec / 60U) % 60U;
+    uint32_t seconds = elapsed_sec % 60U;
+
+    char next[16] = {0};
+    snprintf(next, sizeof(next), "%02u:%02u:%02u",
+             (unsigned)hours, (unsigned)minutes, (unsigned)seconds);
 
     if (strcmp(next, g_app.time_text) != 0)
     {
@@ -275,13 +385,211 @@ static void app_update_uptime_time(uint32_t uptime_seconds)
     }
 }
 
+static bool app_sync_time_with_ntp(void)
+{
+    setenv("TZ", LOCAL_TIMEZONE_TZ, 1);
+    tzset();
+
+    if (!esp_sntp_enabled())
+    {
+        esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+        esp_sntp_setservername(0, "pool.ntp.org");
+        esp_sntp_init();
+    }
+    else
+    {
+        esp_sntp_restart();
+    }
+
+    int waited_ms = 0;
+    while (waited_ms < NTP_SYNC_TIMEOUT_MS)
+    {
+        char local_time[16] = {0};
+        if (app_format_local_time(local_time, sizeof(local_time)))
+        {
+            ESP_LOGI(TAG, "time: synced via NTP (%s, %s)", local_time, LOCAL_TIMEZONE_TZ);
+            return true;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(NTP_SYNC_POLL_MS));
+        waited_ms += NTP_SYNC_POLL_MS;
+    }
+
+    ESP_LOGW(TAG, "time: NTP sync pending after %d ms", NTP_SYNC_TIMEOUT_MS);
+    return false;
+}
+
 static void app_set_screen(drawing_screen_view_t view)
 {
     if (g_app.view != view)
     {
+        if (g_app.view == DRAWING_SCREEN_VIEW_FORECAST && view != DRAWING_SCREEN_VIEW_FORECAST)
+        {
+            g_app.forecast_hourly_open = false;
+            g_app.forecast_hourly_offset = 0;
+            g_app.forecast_hourly_count = 0;
+            g_app.forecast_hourly_day_title[0] = '\0';
+        }
         g_app.view = view;
         app_mark_dirty(true, true, true, true);
     }
+}
+
+static int app_forecast_row_from_y(int16_t y)
+{
+    const int row_top = 52;
+    const int row_stride = 64;
+    const int row_card_h = 56;
+    if (y < row_top || y >= row_top + APP_FORECAST_ROWS * row_stride)
+    {
+        return -1;
+    }
+    int rel_y = y - row_top;
+    int row = rel_y / row_stride;
+    int row_y = rel_y % row_stride;
+    if (row_y > row_card_h)
+    {
+        return -1;
+    }
+    return row;
+}
+
+static void app_build_forecast_hourly_visible(void)
+{
+    if (!g_app.forecast_hourly_open || g_app.forecast_hourly_day >= g_app.forecast_row_count)
+    {
+        g_app.forecast_hourly_count = 0;
+        return;
+    }
+
+    uint8_t day = g_app.forecast_hourly_day;
+    uint8_t count = g_forecast_cache.days[day].count;
+    g_app.forecast_hourly_count = count;
+
+    uint8_t max_start = 0;
+    if (count > APP_FORECAST_ROWS)
+    {
+        max_start = (uint8_t)(count - APP_FORECAST_ROWS);
+    }
+    if (g_app.forecast_hourly_offset > max_start)
+    {
+        g_app.forecast_hourly_offset = max_start;
+    }
+
+    snprintf(g_app.forecast_hourly_day_title, sizeof(g_app.forecast_hourly_day_title),
+             "%.16s Hourly", g_app.forecast_row_title[day]);
+
+    for (int i = 0; i < APP_FORECAST_ROWS; ++i)
+    {
+        int src = (int)g_app.forecast_hourly_offset + i;
+        if (src < count)
+        {
+            const forecast_hourly_payload_t *entry = &g_forecast_cache.days[day].entries[src];
+            snprintf(g_app.forecast_hourly_time[i], sizeof(g_app.forecast_hourly_time[i]), "%s", entry->time_text);
+            snprintf(g_app.forecast_hourly_detail[i], sizeof(g_app.forecast_hourly_detail[i]), "%s", entry->detail);
+            snprintf(g_app.forecast_hourly_temp[i], sizeof(g_app.forecast_hourly_temp[i]), "%s", entry->temp_text);
+            g_app.forecast_hourly_icon[i] = entry->icon;
+        }
+        else
+        {
+            snprintf(g_app.forecast_hourly_time[i], sizeof(g_app.forecast_hourly_time[i]), "--");
+            g_app.forecast_hourly_detail[i][0] = '\0';
+            snprintf(g_app.forecast_hourly_temp[i], sizeof(g_app.forecast_hourly_temp[i]), "--°");
+            g_app.forecast_hourly_icon[i] = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
+        }
+    }
+}
+
+static void app_close_forecast_hourly(void)
+{
+    if (!g_app.forecast_hourly_open)
+    {
+        return;
+    }
+    g_app.forecast_hourly_open = false;
+    g_app.forecast_hourly_offset = 0;
+    g_app.forecast_hourly_count = 0;
+    g_app.forecast_hourly_day_title[0] = '\0';
+    app_mark_dirty(true, true, false, true);
+}
+
+static void app_open_forecast_hourly(uint8_t day_row)
+{
+    if (day_row >= g_app.forecast_row_count)
+    {
+        return;
+    }
+    if (g_forecast_cache.days[day_row].count == 0)
+    {
+        return;
+    }
+
+    g_app.forecast_hourly_open = true;
+    g_app.forecast_hourly_day = day_row;
+    g_app.forecast_hourly_offset = 0;
+    app_build_forecast_hourly_visible();
+    app_mark_dirty(true, true, false, true);
+}
+
+static void app_scroll_forecast_hourly(int dir)
+{
+    if (!g_app.forecast_hourly_open || g_app.forecast_hourly_day >= g_app.forecast_row_count)
+    {
+        return;
+    }
+
+    uint8_t day = g_app.forecast_hourly_day;
+    uint8_t count = g_forecast_cache.days[day].count;
+    if (count <= APP_FORECAST_ROWS)
+    {
+        return;
+    }
+
+    int max_start = (int)count - APP_FORECAST_ROWS;
+    int next_offset = (int)g_app.forecast_hourly_offset + (dir * APP_FORECAST_ROWS);
+    if (next_offset < 0)
+    {
+        next_offset = 0;
+    }
+    else if (next_offset > max_start)
+    {
+        next_offset = max_start;
+    }
+
+    if (next_offset == (int)g_app.forecast_hourly_offset)
+    {
+        return;
+    }
+
+    g_app.forecast_hourly_offset = (uint8_t)next_offset;
+    app_build_forecast_hourly_visible();
+    app_mark_dirty(false, true, false, true);
+}
+
+static void app_handle_touch_tap(int16_t x, int16_t y)
+{
+    (void)x;
+    if (g_app.view != DRAWING_SCREEN_VIEW_FORECAST)
+    {
+        return;
+    }
+
+    if (g_app.forecast_hourly_open)
+    {
+        // Tap near top bar to return to day list.
+        if (y < 42)
+        {
+            app_close_forecast_hourly();
+        }
+        return;
+    }
+
+    int row = app_forecast_row_from_y(y);
+    if (row < 0 || row >= g_app.forecast_row_count)
+    {
+        return;
+    }
+    app_open_forecast_hourly((uint8_t)row);
 }
 
 static uint16_t display_rotation_to_touch_rotation(lv_disp_rot_t display_rotation)
@@ -334,8 +642,23 @@ static void app_poll_touch_swipe(uint32_t now_ms)
     int abs_delta_y = (delta_y >= 0) ? delta_y : -delta_y;
     g_touch_swipe.pressed = false;
 
+    if (abs_delta_x <= TOUCH_TAP_MAX_MOVE_PX && abs_delta_y <= TOUCH_TAP_MAX_MOVE_PX)
+    {
+        app_handle_touch_tap(g_touch_swipe.last_x, g_touch_swipe.last_y);
+        return;
+    }
+
     if ((uint32_t)(now_ms - g_touch_swipe.last_swipe_ms) < TOUCH_SWIPE_COOLDOWN_MS)
     {
+        return;
+    }
+
+    if (g_app.view == DRAWING_SCREEN_VIEW_FORECAST && g_app.forecast_hourly_open &&
+        abs_delta_y >= TOUCH_SWIPE_MIN_Y_PX && abs_delta_x <= TOUCH_SWIPE_MAX_X_PX && abs_delta_y > abs_delta_x)
+    {
+        g_touch_swipe.last_swipe_ms = now_ms;
+        // Swipe up shows later hours; swipe down shows earlier hours.
+        app_scroll_forecast_hourly((delta_y < 0) ? 1 : -1);
         return;
     }
 
@@ -367,6 +690,17 @@ static const char *weekday_name(int wday)
         return "?";
     }
     return WEEKDAY_SHORT[wday];
+}
+
+static void format_hour_label(int hour24, char *out, size_t out_size)
+{
+    int hour12 = hour24 % 12;
+    if (hour12 == 0)
+    {
+        hour12 = 12;
+    }
+    const char *ampm = (hour24 >= 12) ? "PM" : "AM";
+    snprintf(out, out_size, "%d%s", hour12, ampm);
 }
 
 static bool owm_icon_is_night(const char *icon_code)
@@ -443,6 +777,13 @@ static void app_set_forecast_placeholders(void)
     snprintf(g_app.forecast_body_text, sizeof(g_app.forecast_body_text), "Daily highs/lows");
     snprintf(g_app.forecast_preview_text, sizeof(g_app.forecast_preview_text),
              "Tue --°   Wed --°   Thu --°");
+    g_app.forecast_row_count = APP_FORECAST_ROWS;
+    g_app.forecast_hourly_open = false;
+    g_app.forecast_hourly_day = 0;
+    g_app.forecast_hourly_offset = 0;
+    g_app.forecast_hourly_count = 0;
+    g_app.forecast_hourly_day_title[0] = '\0';
+    memset(&g_forecast_cache, 0, sizeof(g_forecast_cache));
 
     for (int i = 0; i < APP_FORECAST_ROWS; ++i)
     {
@@ -450,6 +791,10 @@ static void app_set_forecast_placeholders(void)
         snprintf(g_app.forecast_row_detail[i], sizeof(g_app.forecast_row_detail[i]), "%s", default_details[i]);
         snprintf(g_app.forecast_row_temp[i], sizeof(g_app.forecast_row_temp[i]), "%s", default_temps[i]);
         g_app.forecast_row_icon[i] = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
+        snprintf(g_app.forecast_hourly_time[i], sizeof(g_app.forecast_hourly_time[i]), "--");
+        g_app.forecast_hourly_detail[i][0] = '\0';
+        snprintf(g_app.forecast_hourly_temp[i], sizeof(g_app.forecast_hourly_temp[i]), "--°");
+        g_app.forecast_hourly_icon[i] = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
     }
 }
 
@@ -642,9 +987,12 @@ static void app_apply_forecast_payload(const forecast_payload_t *fc)
         return;
     }
 
+    g_forecast_cache = *fc;
+
     snprintf(g_app.forecast_title_text, sizeof(g_app.forecast_title_text), "Forecast");
     snprintf(g_app.forecast_body_text, sizeof(g_app.forecast_body_text), "Daily highs/lows");
     snprintf(g_app.forecast_preview_text, sizeof(g_app.forecast_preview_text), "%s", fc->preview_text);
+    g_app.forecast_row_count = (fc->row_count > APP_FORECAST_ROWS) ? APP_FORECAST_ROWS : fc->row_count;
 
     for (int i = 0; i < APP_FORECAST_ROWS; ++i)
     {
@@ -652,6 +1000,20 @@ static void app_apply_forecast_payload(const forecast_payload_t *fc)
         snprintf(g_app.forecast_row_detail[i], sizeof(g_app.forecast_row_detail[i]), "%s", fc->rows[i].detail);
         snprintf(g_app.forecast_row_temp[i], sizeof(g_app.forecast_row_temp[i]), "%s", fc->rows[i].temp_text);
         g_app.forecast_row_icon[i] = fc->rows[i].icon;
+    }
+
+    if (g_app.forecast_hourly_open)
+    {
+        if (g_app.forecast_hourly_day >= g_app.forecast_row_count ||
+            g_forecast_cache.days[g_app.forecast_hourly_day].count == 0)
+        {
+            app_close_forecast_hourly();
+        }
+        else
+        {
+            app_build_forecast_hourly_visible();
+            app_mark_dirty(true, false, false, true);
+        }
     }
 
     app_mark_dirty(false, true, false, false);
@@ -676,12 +1038,15 @@ static void app_state_init_defaults(void)
 {
     memset(&g_app, 0, sizeof(g_app));
     memset(&g_touch_swipe, 0, sizeof(g_touch_swipe));
+    g_wifi_connected = false;
+    g_wifi_connected_ms = 0;
 
     g_app.view = DRAWING_SCREEN_VIEW_NOW;
     g_app.forecast_page = 0;
     g_app.has_weather = false;
 
     snprintf(g_app.time_text, sizeof(g_app.time_text), "00:00:00");
+    snprintf(g_app.now_time_text, sizeof(g_app.now_time_text), "--:--");
     snprintf(g_app.status_text, sizeof(g_app.status_text), "status: boot complete");
     snprintf(g_app.temp_text, sizeof(g_app.temp_text), "--\xC2\xB0" "F");
     snprintf(g_app.condition_text, sizeof(g_app.condition_text), "Waiting for weather");
@@ -775,9 +1140,46 @@ static bool wait_for_wifi_ip(char *ip_out, size_t ip_out_size)
     return false;
 }
 
-static esp_err_t http_get_text(const char *url, char *response_buf, size_t response_buf_size, int *status_code, int *bytes_read)
+static bool is_https_url(const char *url)
 {
-    if (response_buf_size == 0)
+    return (url != NULL) && (strncmp(url, "https://", 8) == 0);
+}
+
+static esp_http_client_handle_t http_client_create(const char *url, bool use_cert_bundle)
+{
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.method = HTTP_METHOD_GET;
+    config.timeout_ms = WEATHER_HTTP_TIMEOUT_MS;
+    config.user_agent = "waveshare-s3-weather-test/1.0";
+    config.keep_alive_enable = true;
+
+    if (is_https_url(url))
+    {
+        const ptrdiff_t chain_len = openweather_trust_chain_pem_end - openweather_trust_chain_pem_start;
+        config.tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2;
+        config.skip_cert_common_name_check = false;
+        if (use_cert_bundle)
+        {
+            config.crt_bundle_attach = esp_crt_bundle_attach;
+        }
+        else
+        {
+            config.cert_pem = OPENWEATHER_CA_CERT_PEM;
+            if (chain_len > 0)
+            {
+                config.cert_len = (size_t)chain_len;
+            }
+        }
+    }
+
+    return esp_http_client_init(&config);
+}
+
+static esp_err_t http_get_text_once(esp_http_client_handle_t client, const char *url, char *response_buf, size_t response_buf_size,
+                                    int *status_code, int *bytes_read)
+{
+    if (client == NULL || url == NULL || response_buf_size == 0)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -792,23 +1194,18 @@ static esp_err_t http_get_text(const char *url, char *response_buf, size_t respo
         *bytes_read = 0;
     }
 
-    esp_http_client_config_t config = {};
-    config.url = url;
-    config.method = HTTP_METHOD_GET;
-    config.timeout_ms = WEATHER_HTTP_TIMEOUT_MS;
-    config.crt_bundle_attach = esp_crt_bundle_attach;
-    config.user_agent = "waveshare-s3-weather-test/1.0";
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL)
-    {
-        return ESP_FAIL;
-    }
-
-    esp_err_t err = esp_http_client_open(client, 0);
+    esp_err_t err = esp_http_client_set_url(client, url);
     if (err != ESP_OK)
     {
-        esp_http_client_cleanup(client);
+        return err;
+    }
+
+    esp_http_client_set_method(client, HTTP_METHOD_GET);
+    esp_http_client_set_timeout_ms(client, WEATHER_HTTP_TIMEOUT_MS);
+
+    err = esp_http_client_open(client, 0);
+    if (err != ESP_OK)
+    {
         return err;
     }
 
@@ -846,7 +1243,6 @@ static esp_err_t http_get_text(const char *url, char *response_buf, size_t respo
     }
 
     esp_http_client_close(client);
-    esp_http_client_cleanup(client);
     return err;
 }
 
@@ -909,6 +1305,7 @@ static void forecast_payload_set_defaults(forecast_payload_t *out)
 {
     static const char *default_titles[APP_FORECAST_ROWS] = {
         "Tue", "Wed", "Thu", "Fri"};
+    out->row_count = APP_FORECAST_ROWS;
     for (int i = 0; i < APP_FORECAST_ROWS; ++i)
     {
         snprintf(out->rows[i].title, sizeof(out->rows[i].title), "%s", default_titles[i]);
@@ -918,6 +1315,7 @@ static void forecast_payload_set_defaults(forecast_payload_t *out)
         out->rows[i].feels_f = 0;
         out->rows[i].wind_mph = 0;
         out->rows[i].icon = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
+        out->days[i].count = 0;
     }
     snprintf(out->preview_text, sizeof(out->preview_text), "Tue --°   Wed --°   Thu --°");
 }
@@ -959,10 +1357,14 @@ static bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         drawing_weather_icon_t icon;
         bool icon_set;
         int icon_score;
+        uint8_t hourly_count;
+        forecast_hourly_payload_t hourly[APP_FORECAST_HOURLY_MAX];
     } day_summary_t;
 
-    day_summary_t days[APP_FORECAST_MAX_DAYS] = {};
+    static day_summary_t days[APP_FORECAST_MAX_DAYS];
+    memset(days, 0, sizeof(days));
     int day_count = 0;
+    int first_entry_hour = -1;
 
     int list_count = cJSON_GetArraySize(list);
     for (int i = 0; i < list_count; ++i)
@@ -987,6 +1389,10 @@ static bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         time_t local_epoch = (time_t)(dt_value + (int64_t)tz_offset);
         struct tm tm_local = {};
         gmtime_r(&local_epoch, &tm_local);
+        if (first_entry_hour < 0)
+        {
+            first_entry_hour = tm_local.tm_hour;
+        }
 
         int idx = -1;
         for (int d = 0; d < day_count; ++d)
@@ -1014,6 +1420,7 @@ static bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
             days[idx].icon = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
             days[idx].icon_set = false;
             days[idx].icon_score = -1;
+            days[idx].hourly_count = 0;
         }
         if ((float)temp->valuedouble > days[idx].high_f)
         {
@@ -1055,12 +1462,45 @@ static bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
             days[idx].icon_set = true;
             days[idx].icon_score = icon_score;
         }
+
+        if (days[idx].hourly_count < APP_FORECAST_HOURLY_MAX)
+        {
+            forecast_hourly_payload_t *slot = &days[idx].hourly[days[idx].hourly_count];
+            int temp_i = (int)lroundf((float)temp->valuedouble);
+            cJSON *feels_like = cJSON_GetObjectItemCaseSensitive(main_obj, "feels_like");
+            int feels_i = cJSON_IsNumber(feels_like) ? (int)lroundf((float)feels_like->valuedouble) : temp_i;
+            int wind_i = cJSON_IsNumber(wind_speed) ? (int)lroundf((float)wind_speed->valuedouble) : 0;
+
+            slot->temp_f = temp_i;
+            slot->feels_f = feels_i;
+            slot->wind_mph = wind_i;
+            slot->icon = mapped_icon;
+            format_hour_label(tm_local.tm_hour, slot->time_text, sizeof(slot->time_text));
+            snprintf(slot->detail, sizeof(slot->detail), "Feels %d° Wind %d", feels_i, wind_i);
+            snprintf(slot->temp_text, sizeof(slot->temp_text), "%d°", temp_i);
+            days[idx].hourly_count++;
+        }
     }
 
-    int row_count = (day_count < APP_FORECAST_ROWS) ? day_count : APP_FORECAST_ROWS;
+    int start_day = 0;
+    if (day_count > 1 && first_entry_hour > 0)
+    {
+        // OWM 5-day forecast starts from the next 3h slot; if it is not midnight,
+        // the first grouped day is a partial "today" bucket. Skip it for day-ahead UI.
+        start_day = 1;
+    }
+
+    int available_days = day_count - start_day;
+    if (available_days < 0)
+    {
+        available_days = 0;
+    }
+
+    int row_count = (available_days < APP_FORECAST_ROWS) ? available_days : APP_FORECAST_ROWS;
+    out->row_count = (uint8_t)row_count;
     for (int i = 0; i < row_count; ++i)
     {
-        const day_summary_t *day = &days[i];
+        const day_summary_t *day = &days[start_day + i];
         forecast_row_payload_t *row = &out->rows[i];
         int high_i = (int)lroundf(day->high_f);
         int low_i = (int)lroundf(day->low_f);
@@ -1074,17 +1514,24 @@ static bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         snprintf(row->title, sizeof(row->title), "%s", weekday_name(day->wday));
         snprintf(row->detail, sizeof(row->detail), "Low %d° Wind %d", low_i, wind_i);
         snprintf(row->temp_text, sizeof(row->temp_text), "%d°", high_i);
+
+        out->days[i].count = day->hourly_count;
+        for (int h = 0; h < day->hourly_count && h < APP_FORECAST_HOURLY_MAX; ++h)
+        {
+            out->days[i].entries[h] = day->hourly[h];
+        }
     }
 
-    int preview_count = (day_count < APP_PREVIEW_DAYS) ? day_count : APP_PREVIEW_DAYS;
+    int preview_count = (available_days < APP_PREVIEW_DAYS) ? available_days : APP_PREVIEW_DAYS;
     if (preview_count > 0)
     {
         out->preview_text[0] = '\0';
         for (int i = 0; i < preview_count; ++i)
         {
             char day_chunk[32] = {0};
-            int high_i = (int)lroundf(days[i].high_f);
-            snprintf(day_chunk, sizeof(day_chunk), "%s %d°", weekday_name(days[i].wday), high_i);
+            const day_summary_t *day = &days[start_day + i];
+            int high_i = (int)lroundf(day->high_f);
+            snprintf(day_chunk, sizeof(day_chunk), "%s %d°", weekday_name(day->wday), high_i);
 
             if (i > 0)
             {
@@ -1106,7 +1553,7 @@ static bool weather_fetch_once(void)
                                    WEATHER_QUERY_LOCAL, WEATHER_API_KEY_LOCAL);
     if (weather_url_len <= 0 || weather_url_len >= (int)sizeof(weather_url))
     {
-        app_set_status_fmt("http: url build failed");
+        app_set_status_fmt("https: url build failed");
         app_set_bottom_fmt("weather URL error");
         return false;
     }
@@ -1117,82 +1564,127 @@ static bool weather_fetch_once(void)
                                     WEATHER_QUERY_LOCAL, WEATHER_API_KEY_LOCAL);
     if (forecast_url_len <= 0 || forecast_url_len >= (int)sizeof(forecast_url))
     {
-        app_set_status_fmt("http: forecast url build failed");
+        app_set_status_fmt("https: forecast url build failed");
         app_set_bottom_fmt("forecast URL error");
         return false;
     }
 
-    app_set_status_fmt("http: GET weather (%s)", WEATHER_QUERY_LOCAL);
-    app_set_bottom_fmt("fetching current conditions...");
-    app_render_if_dirty();
-
-    static char weather_response[WEATHER_HTTP_BUFFER_SIZE] = {0};
-    int http_status = 0;
-    int http_bytes = 0;
-    esp_err_t err = http_get_text(weather_url, weather_response, sizeof(weather_response), &http_status, &http_bytes);
-
-    if (err != ESP_OK)
+    for (int attempt = 0; attempt < 2; ++attempt)
     {
-        app_set_status_fmt("http: transport error %s", esp_err_to_name(err));
-        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-        return false;
+        bool use_cert_bundle = (attempt == 1);
+        if (use_cert_bundle)
+        {
+            app_set_status_fmt("https: retry with cert bundle");
+            app_set_bottom_fmt("retrying secure connect...");
+            app_render_if_dirty();
+        }
+
+        esp_http_client_handle_t client = http_client_create(weather_url, use_cert_bundle);
+        if (client == NULL)
+        {
+            if (!use_cert_bundle)
+            {
+                continue;
+            }
+            app_set_status_fmt("https: client init failed");
+            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            return false;
+        }
+        struct http_client_guard_t {
+            esp_http_client_handle_t handle;
+            ~http_client_guard_t()
+            {
+                if (handle != NULL)
+                {
+                    esp_http_client_cleanup(handle);
+                }
+            }
+        } client_guard = {client};
+
+        app_set_status_fmt("https: GET weather (%s)", WEATHER_QUERY_LOCAL);
+        app_set_bottom_fmt("fetching current conditions...");
+        app_render_if_dirty();
+
+        static char weather_response[WEATHER_HTTP_BUFFER_SIZE] = {0};
+        int http_status = 0;
+        int http_bytes = 0;
+        esp_err_t err = http_get_text_once(client, weather_url, weather_response, sizeof(weather_response), &http_status, &http_bytes);
+
+        if (err != ESP_OK)
+        {
+            app_set_status_fmt("https: transport error %s", esp_err_to_name(err));
+            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            if (!use_cert_bundle && err == ESP_ERR_HTTP_CONNECT)
+            {
+                continue;
+            }
+            return false;
+        }
+
+        app_set_status_fmt("https: status %d bytes %d", http_status, http_bytes);
+
+        if (http_status != 200)
+        {
+            snprintf(g_app.weather_text, sizeof(g_app.weather_text), "API returned status %d", http_status);
+            app_mark_dirty(false, true, false, false);
+            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            return false;
+        }
+
+        weather_payload_t wx = {};
+        if (!parse_weather_json(weather_response, &wx))
+        {
+            app_set_status_fmt("json: parse failed");
+            snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather JSON parse failed");
+            app_mark_dirty(false, true, false, false);
+            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            return false;
+        }
+
+        app_apply_weather(&wx);
+
+        app_set_status_fmt("https: GET forecast");
+        app_render_if_dirty();
+
+        static char forecast_response[WEATHER_FORECAST_HTTP_BUFFER_SIZE] = {0};
+        int fc_status = 0;
+        int fc_bytes = 0;
+        err = http_get_text_once(client, forecast_url, forecast_response, sizeof(forecast_response), &fc_status, &fc_bytes);
+        if (err != ESP_OK)
+        {
+            app_set_status_fmt("https: forecast transport %s", esp_err_to_name(err));
+            app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            if (!use_cert_bundle && err == ESP_ERR_HTTP_CONNECT)
+            {
+                continue;
+            }
+            return false;
+        }
+
+        if (fc_status != 200)
+        {
+            app_set_status_fmt("https: forecast status %d", fc_status);
+            app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            return false;
+        }
+
+        memset(&g_forecast_cache, 0, sizeof(g_forecast_cache));
+        if (!parse_forecast_json(forecast_response, &g_forecast_cache))
+        {
+            app_set_status_fmt("json: forecast parse failed");
+            app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+            return false;
+        }
+
+        app_apply_forecast_payload(&g_forecast_cache);
+        app_set_status_fmt("sync: ok %s %s", wx.city, wx.country);
+        app_set_bottom_fmt("next sync in %u min", (unsigned)(WEATHER_REFRESH_MS / 60000));
+        return true;
     }
 
-    app_set_status_fmt("http: status %d bytes %d", http_status, http_bytes);
-
-    if (http_status != 200)
-    {
-        snprintf(g_app.weather_text, sizeof(g_app.weather_text), "API returned status %d", http_status);
-        app_mark_dirty(false, true, false, false);
-        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-        return false;
-    }
-
-    weather_payload_t wx = {};
-    if (!parse_weather_json(weather_response, &wx))
-    {
-        app_set_status_fmt("json: parse failed");
-        snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather JSON parse failed");
-        app_mark_dirty(false, true, false, false);
-        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-        return false;
-    }
-
-    app_apply_weather(&wx);
-
-    app_set_status_fmt("http: GET forecast");
-    app_render_if_dirty();
-
-    static char forecast_response[WEATHER_FORECAST_HTTP_BUFFER_SIZE] = {0};
-    int fc_status = 0;
-    int fc_bytes = 0;
-    err = http_get_text(forecast_url, forecast_response, sizeof(forecast_response), &fc_status, &fc_bytes);
-    if (err != ESP_OK)
-    {
-        app_set_status_fmt("http: forecast transport %s", esp_err_to_name(err));
-        app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-        return false;
-    }
-
-    if (fc_status != 200)
-    {
-        app_set_status_fmt("http: forecast status %d", fc_status);
-        app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-        return false;
-    }
-
-    forecast_payload_t fc = {};
-    if (!parse_forecast_json(forecast_response, &fc))
-    {
-        app_set_status_fmt("json: forecast parse failed");
-        app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-        return false;
-    }
-
-    app_apply_forecast_payload(&fc);
-    app_set_status_fmt("sync: ok %s %s", wx.city, wx.country);
-    app_set_bottom_fmt("next sync in %u min", (unsigned)(WEATHER_REFRESH_MS / 60000));
-    return true;
+    app_set_status_fmt("https: secure connect failed");
+    app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+    return false;
 }
 
 static void weather_task(void *arg)
@@ -1243,6 +1735,17 @@ static void weather_task(void *arg)
     app_set_bottom_fmt("online %s", WEATHER_QUERY_LOCAL);
     app_render_if_dirty();
 
+    g_wifi_connected = true;
+    g_wifi_connected_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
+    app_update_connect_time(g_wifi_connected_ms);
+
+    bool ntp_synced = app_sync_time_with_ntp();
+    app_update_local_time();
+    app_set_bottom_fmt("%s | %s",
+                       ntp_synced ? "time: synced" : "time: pending",
+                       WEATHER_QUERY_LOCAL);
+    app_render_if_dirty();
+
     next_weather_sync_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
     next_indoor_sample_ms = next_weather_sync_ms;
     next_i2c_scan_ms = next_weather_sync_ms;
@@ -1256,7 +1759,8 @@ static void weather_task(void *arg)
         if (now_sec != last_time_sec)
         {
             last_time_sec = now_sec;
-            app_update_uptime_time(now_sec);
+            app_update_connect_time(now_ms);
+            app_update_local_time();
         }
 
         app_poll_touch_swipe(now_ms);
@@ -1285,8 +1789,18 @@ static void weather_task(void *arg)
 
         if ((int32_t)(now_ms - next_weather_sync_ms) >= 0)
         {
-            bool ok = weather_fetch_once();
-            next_weather_sync_ms = now_ms + (ok ? WEATHER_REFRESH_MS : WEATHER_RETRY_MS);
+            char local_time[16] = {0};
+            if (!app_format_local_time(local_time, sizeof(local_time)))
+            {
+                app_set_status_fmt("time: waiting for NTP");
+                app_set_bottom_fmt("HTTPS blocked until clock sync");
+                next_weather_sync_ms = now_ms + 10000;
+            }
+            else
+            {
+                bool ok = weather_fetch_once();
+                next_weather_sync_ms = now_ms + (ok ? WEATHER_REFRESH_MS : WEATHER_RETRY_MS);
+            }
         }
 
         app_render_if_dirty();
@@ -1347,7 +1861,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "State-driven weather UI initialized");
 
-    xTaskCreatePinnedToCore(weather_task, "weather_task", 1024 * 12, NULL, 3, NULL, 1);
+    xTaskCreatePinnedToCore(weather_task, "weather_task", 1024 * 16, NULL, 3, NULL, 1);
 
     while (true)
     {

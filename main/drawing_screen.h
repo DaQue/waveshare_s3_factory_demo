@@ -45,8 +45,12 @@ typedef struct {
 typedef struct {
     drawing_screen_view_t view;
     uint8_t forecast_page;
+    bool forecast_hourly_open;
+    uint8_t forecast_hourly_offset;
+    uint8_t forecast_hourly_count;
     bool has_weather;
     const char *time_text;
+    const char *now_time_text;
     const char *status_text;
     const char *temp_text;
     const char *condition_text;
@@ -65,6 +69,11 @@ typedef struct {
     const char *forecast_row_detail[DRAWING_SCREEN_FORECAST_ROWS];
     const char *forecast_row_temp[DRAWING_SCREEN_FORECAST_ROWS];
     drawing_weather_icon_t forecast_row_icon[DRAWING_SCREEN_FORECAST_ROWS];
+    const char *forecast_hourly_day_title;
+    const char *forecast_hourly_time[DRAWING_SCREEN_FORECAST_ROWS];
+    const char *forecast_hourly_detail[DRAWING_SCREEN_FORECAST_ROWS];
+    const char *forecast_hourly_temp[DRAWING_SCREEN_FORECAST_ROWS];
+    drawing_weather_icon_t forecast_hourly_icon[DRAWING_SCREEN_FORECAST_ROWS];
     const char *i2c_scan_text;
     const char *wifi_scan_text;
     const char *bottom_text;

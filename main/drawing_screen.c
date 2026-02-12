@@ -55,6 +55,7 @@ static lv_obj_t *header_time_label = NULL;
 static lv_obj_t *status_label = NULL;
 
 static lv_obj_t *now_temp_label = NULL;
+static lv_obj_t *now_time_label = NULL;
 static lv_obj_t *now_condition_label = NULL;
 static lv_obj_t *now_weather_label = NULL;
 static lv_obj_t *now_stats_1_label = NULL;
@@ -422,6 +423,7 @@ static void apply_view_visibility(drawing_screen_view_t view)
     bool wifi_visible = (view == DRAWING_SCREEN_VIEW_WIFI_SCAN);
 
     set_obj_hidden(now_temp_label, !now_visible);
+    set_obj_hidden(now_time_label, !now_visible);
     set_obj_hidden(now_condition_label, !now_visible);
     set_obj_hidden(now_weather_label, !now_visible);
     set_obj_hidden(now_stats_1_label, !now_visible);
@@ -502,6 +504,14 @@ void drawing_screen_init(void)
         lv_obj_set_style_text_color(now_temp_label, lv_color_make(232, 235, 240), 0);
     }
     lv_obj_set_pos(now_temp_label, 174, 80);
+
+    if (now_time_label == NULL)
+    {
+        now_time_label = lv_label_create(screen);
+        lv_obj_set_style_text_font(now_time_label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(now_time_label, lv_color_make(188, 196, 208), 0);
+    }
+    lv_obj_set_pos(now_time_label, 338, 90);
 
     if (now_condition_label == NULL)
     {
@@ -625,6 +635,7 @@ void drawing_screen_init(void)
     lv_label_set_text(header_title_label, "St Charles, MO");
     lv_label_set_text(status_label, "Wi-Fi");
     lv_label_set_text(now_temp_label, "72°");
+    lv_label_set_text(now_time_label, "10:42 AM");
     lv_label_set_text(now_condition_label, "FEELS 69°");
     lv_label_set_text(now_weather_label, "(Partly Cloudy)");
     lv_label_set_text(now_stats_1_label, "Indoor --°F");
@@ -679,6 +690,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_label_set_text(header_time_label, text_or_fallback(data->time_text, "--:-- --"));
             lv_label_set_text(header_title_label, text_or_fallback(data->weather_text, "St Charles, MO"));
             lv_label_set_text(status_label, signal);
+            lv_label_set_text(now_time_label, text_or_fallback(data->now_time_text, "--:--"));
 
             lv_obj_set_pos(header_time_label, 14, 4);
             lv_obj_align(header_title_label, LV_ALIGN_TOP_MID, 0, 4);
@@ -686,9 +698,17 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
         }
         else if (current_view == DRAWING_SCREEN_VIEW_FORECAST)
         {
-            lv_label_set_text(header_time_label, "Forecast");
+            if (data->forecast_hourly_open)
+            {
+                lv_label_set_text(header_time_label, text_or_fallback(data->forecast_hourly_day_title, "Hourly"));
+                lv_label_set_text(status_label, "< Days");
+            }
+            else
+            {
+                lv_label_set_text(header_time_label, "Forecast");
+                lv_label_set_text(status_label, "> I2C");
+            }
             lv_label_set_text(header_title_label, "");
-            lv_label_set_text(status_label, "> I2C");
 
             lv_obj_set_pos(header_time_label, 14, 4);
             lv_obj_align(status_label, LV_ALIGN_TOP_RIGHT, -12, 8);
@@ -727,10 +747,12 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             draw_now_background(data->now_icon);
 
             lv_obj_set_pos(now_temp_label, 174, 80);
+            lv_obj_set_pos(now_time_label, 338, 90);
             lv_obj_set_pos(now_condition_label, 182, 145);
             lv_obj_set_pos(now_weather_label, 172, 178);
 
             lv_label_set_text(now_temp_label, temp_compact);
+            lv_label_set_text(now_time_label, text_or_fallback(data->now_time_text, "--:--"));
             lv_label_set_text(now_condition_label, feels_line);
             lv_label_set_text(now_weather_label, condition_line);
             lv_label_set_text(now_stats_1_label, text_or_fallback(data->indoor_line_1, "Indoor --°F"));
@@ -756,16 +778,33 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
 
             for (int i = 0; i < FORECAST_ROWS; ++i)
             {
-                draw_icon_scaled(data->forecast_row_icon[i], 19, 62 + i * 64, 36, 34);
-                lv_label_set_text(forecast_row_title_labels[i], text_or_fallback(data->forecast_row_title[i], MOCK_FORECAST_TITLES[i]));
-                lv_label_set_text(forecast_row_detail_labels[i], text_or_fallback(data->forecast_row_detail[i], FALLBACK_FORECAST_DETAILS[i]));
-                lv_label_set_text(forecast_row_temp_labels[i], text_or_fallback(data->forecast_row_temp[i], "--°"));
+                if (data->forecast_hourly_open)
+                {
+                    draw_icon_scaled(data->forecast_hourly_icon[i], 19, 62 + i * 64, 36, 34);
+                    lv_label_set_text(forecast_row_title_labels[i], text_or_fallback(data->forecast_hourly_time[i], "--"));
+                    lv_label_set_text(forecast_row_detail_labels[i], text_or_fallback(data->forecast_hourly_detail[i], ""));
+                    lv_label_set_text(forecast_row_temp_labels[i], text_or_fallback(data->forecast_hourly_temp[i], "--°"));
+                }
+                else
+                {
+                    draw_icon_scaled(data->forecast_row_icon[i], 19, 62 + i * 64, 36, 34);
+                    lv_label_set_text(forecast_row_title_labels[i], text_or_fallback(data->forecast_row_title[i], MOCK_FORECAST_TITLES[i]));
+                    lv_label_set_text(forecast_row_detail_labels[i], text_or_fallback(data->forecast_row_detail[i], FALLBACK_FORECAST_DETAILS[i]));
+                    lv_label_set_text(forecast_row_temp_labels[i], text_or_fallback(data->forecast_row_temp[i], "--°"));
+                }
             }
             lv_obj_invalidate(canvas);
 
             lv_obj_set_width(bottom_label, screen_w - 24);
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);
-            lv_label_set_text(bottom_label, "(swipe left/right or tap to switch pages)");
+            if (data->forecast_hourly_open)
+            {
+                lv_label_set_text(bottom_label, "(swipe up/down hours, left/right pages)");
+            }
+            else
+            {
+                lv_label_set_text(bottom_label, "(tap a day for hourly, swipe left/right pages)");
+            }
         }
         else if (current_view == DRAWING_SCREEN_VIEW_I2C_SCAN)
         {
