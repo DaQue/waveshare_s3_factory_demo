@@ -59,11 +59,11 @@ void app_run_i2c_scan(i2c_master_bus_handle_t bus_handle)
     }
     else
     {
-        used += snprintf(text + used, sizeof(text) - used,
-                         "\n\nTotal: %d\nBME280 addr: %s\nDriver: %s",
-                         found_count,
-                         found_bme_addr ? "present" : "missing",
-                         bsp_bme280_is_available() ? "initialized" : "not initialized");
+        (void)snprintf(text + used, sizeof(text) - used,
+                       "\n\nTotal: %d\nBME280 addr: %s\nDriver: %s",
+                       found_count,
+                       found_bme_addr ? "present" : "missing",
+                       bsp_bme280_is_available() ? "initialized" : "not initialized");
     }
 
     snprintf(g_app.i2c_scan_text, sizeof(g_app.i2c_scan_text), "%s", text);
@@ -120,7 +120,7 @@ void app_run_wifi_scan(void)
 
     if (shown == 0)
     {
-        used += snprintf(text + used, sizeof(text) - used, "No networks in range.");
+        (void)snprintf(text + used, sizeof(text) - used, "No networks in range.");
     }
     else
     {
@@ -138,8 +138,8 @@ void app_run_wifi_scan(void)
         }
         if (ap_count > shown && used < sizeof(text))
         {
-            used += snprintf(text + used, sizeof(text) - used, "...and %u more",
-                             (unsigned)(ap_count - shown));
+            (void)snprintf(text + used, sizeof(text) - used, "...and %u more",
+                           (unsigned)(ap_count - shown));
         }
     }
 

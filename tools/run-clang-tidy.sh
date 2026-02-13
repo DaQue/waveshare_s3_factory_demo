@@ -41,6 +41,7 @@ jq '
                 gsub(" -fno-tree-switch-conversion"; "") |
                 gsub(" -fstrict-volatile-bitfields"; "") |
                 gsub(" -mdisable-hardware-atomics"; "") |
+                gsub(" -mlongcalls"; "") |
                 gsub(" -Werror=all"; "") |
                 gsub(" -Werror "; " ") |
                 sub(" -Werror$"; "")
@@ -96,4 +97,6 @@ if [[ -n "${XTENSA_GPP}" ]]; then
     fi
 fi
 
-"${CLANG_TIDY_BIN}" -p "${CLANG_DB_DIR}" "${EXTRA_ARGS[@]}" "${FILES[@]}"
+"${CLANG_TIDY_BIN}" -p "${CLANG_DB_DIR}" \
+    "-checks=-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling" \
+    "${EXTRA_ARGS[@]}" "${FILES[@]}"

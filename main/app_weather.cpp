@@ -81,6 +81,44 @@ drawing_weather_icon_t map_owm_condition_to_icon(int weather_id, const char *ico
     return is_night ? DRAWING_WEATHER_ICON_FEW_CLOUDS_NIGHT : DRAWING_WEATHER_ICON_CLOUDS;
 }
 
+static bool json_read_i64(const cJSON *item, int64_t *out)
+{
+    if (out == NULL || item == NULL || !cJSON_IsNumber(item))
+    {
+        return false;
+    }
+    *out = (int64_t)item->valuedouble;
+    return true;
+}
+
+static bool json_read_float(const cJSON *item, float *out)
+{
+    if (out == NULL || item == NULL || !cJSON_IsNumber(item))
+    {
+        return false;
+    }
+    *out = (float)item->valuedouble;
+    return true;
+}
+
+static int json_read_int(const cJSON *item, int fallback)
+{
+    if (item == NULL || !cJSON_IsNumber(item))
+    {
+        return fallback;
+    }
+    return item->valueint;
+}
+
+static const char *json_read_string(const cJSON *item, const char *fallback)
+{
+    if (item == NULL || !cJSON_IsString(item) || item->valuestring == NULL)
+    {
+        return fallback;
+    }
+    return item->valuestring;
+}
+
 bool parse_weather_json(const char *json_text, weather_payload_t *out)
 {
     if (out == NULL)
@@ -113,24 +151,31 @@ bool parse_weather_json(const char *json_text, weather_payload_t *out)
     cJSON *weather_id = (weather0 != NULL) ? cJSON_GetObjectItemCaseSensitive(weather0, "id") : NULL;
     cJSON *icon = (weather0 != NULL) ? cJSON_GetObjectItemCaseSensitive(weather0, "icon") : NULL;
 
-    if (!cJSON_IsNumber(temp))
+    float temp_f = 0.0f;
+    if (!json_read_float(temp, &temp_f))
     {
         cJSON_Delete(root);
         return false;
     }
 
-    memset(out, 0, sizeof(*out));
-    out->temp_f = (float)temp->valuedouble;
-    out->feels_f = cJSON_IsNumber(feels) ? (float)feels->valuedouble : out->temp_f;
-    out->wind_mph = cJSON_IsNumber(wind_speed) ? (float)wind_speed->valuedouble : 0.0f;
-    out->humidity = cJSON_IsNumber(humidity) ? humidity->valueint : -1;
-    out->pressure_hpa = cJSON_IsNumber(pressure) ? pressure->valueint : -1;
-    out->icon = map_owm_condition_to_icon(cJSON_IsNumber(weather_id) ? weather_id->valueint : 0,
-                                          cJSON_IsString(icon) ? icon->valuestring : NULL);
+    float feels_f = temp_f;
+    (void)json_read_float(feels, &feels_f);
 
-    snprintf(out->city, sizeof(out->city), "%s", cJSON_IsString(name) ? name->valuestring : "?");
-    snprintf(out->country, sizeof(out->country), "%s", cJSON_IsString(country) ? country->valuestring : "");
-    snprintf(out->condition, sizeof(out->condition), "%s", cJSON_IsString(desc) ? desc->valuestring : "(unknown)");
+    float wind_mph = 0.0f;
+    (void)json_read_float(wind_speed, &wind_mph);
+
+    memset(out, 0, sizeof(*out));
+    out->temp_f = temp_f;
+    out->feels_f = feels_f;
+    out->wind_mph = wind_mph;
+    out->humidity = json_read_int(humidity, -1);
+    out->pressure_hpa = json_read_int(pressure, -1);
+    out->icon = map_owm_condition_to_icon(json_read_int(weather_id, 0),
+                                          json_read_string(icon, NULL));
+
+    snprintf(out->city, sizeof(out->city), "%s", json_read_string(name, "?"));
+    snprintf(out->country, sizeof(out->country), "%s", json_read_string(country, ""));
+    snprintf(out->condition, sizeof(out->condition), "%s", json_read_string(desc, "(unknown)"));
 
     cJSON_Delete(root);
     return true;
@@ -179,10 +224,9 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
 
     cJSON *city = cJSON_GetObjectItemCaseSensitive(root, "city");
     cJSON *timezone = (city != NULL) ? cJSON_GetObjectItemCaseSensitive(city, "timezone") : NULL;
-    int tz_offset = cJSON_IsNumber(timezone) ? timezone->valueint : 0;
+    int tz_offset = json_read_int(timezone, 0);
 
     typedef struct {
-        bool set;
         int year;
         int yday;
         int wday;
@@ -190,10 +234,11 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         float low_f;
         float wind_peak_mph;
         drawing_weather_icon_t icon;
-        bool icon_set;
         int icon_score;
-        uint8_t hourly_count;
         forecast_hourly_payload_t hourly[APP_FORECAST_HOURLY_MAX];
+        bool set;
+        bool icon_set;
+        uint8_t hourly_count;
     } day_summary_t;
 
     static day_summary_t days[APP_FORECAST_MAX_DAYS];
@@ -215,12 +260,21 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         cJSON *temp = cJSON_GetObjectItemCaseSensitive(main_obj, "temp");
         cJSON *wind_obj = cJSON_GetObjectItemCaseSensitive(entry, "wind");
         cJSON *wind_speed = cJSON_IsObject(wind_obj) ? cJSON_GetObjectItemCaseSensitive(wind_obj, "speed") : NULL;
-        if (!cJSON_IsNumber(temp))
+        float temp_f = 0.0f;
+        if (!json_read_float(temp, &temp_f))
         {
             continue;
         }
 
-        int64_t dt_value = (int64_t)dt->valuedouble;
+        int64_t dt_value = 0;
+        if (!json_read_i64(dt, &dt_value))
+        {
+            continue;
+        }
+
+        float wind_speed_f = 0.0f;
+        bool has_wind_speed = json_read_float(wind_speed, &wind_speed_f);
+
         time_t local_epoch = (time_t)(dt_value + (int64_t)tz_offset);
         struct tm tm_local = {};
         gmtime_r(&local_epoch, &tm_local);
@@ -249,34 +303,36 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
             days[idx].year = tm_local.tm_year;
             days[idx].yday = tm_local.tm_yday;
             days[idx].wday = tm_local.tm_wday;
-            days[idx].high_f = (float)temp->valuedouble;
-            days[idx].low_f = (float)temp->valuedouble;
-            days[idx].wind_peak_mph = cJSON_IsNumber(wind_speed) ? (float)wind_speed->valuedouble : 0.0f;
+            days[idx].high_f = temp_f;
+            days[idx].low_f = temp_f;
+            days[idx].wind_peak_mph = has_wind_speed ? wind_speed_f : 0.0f;
             days[idx].icon = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
             days[idx].icon_set = false;
             days[idx].icon_score = -1;
             days[idx].hourly_count = 0;
         }
-        if ((float)temp->valuedouble > days[idx].high_f)
+        if (temp_f > days[idx].high_f)
         {
-            days[idx].high_f = (float)temp->valuedouble;
+            days[idx].high_f = temp_f;
         }
-        if ((float)temp->valuedouble < days[idx].low_f)
+        if (temp_f < days[idx].low_f)
         {
-            days[idx].low_f = (float)temp->valuedouble;
+            days[idx].low_f = temp_f;
         }
-        if (cJSON_IsNumber(wind_speed) && (float)wind_speed->valuedouble > days[idx].wind_peak_mph)
+        if (has_wind_speed && wind_speed_f > days[idx].wind_peak_mph)
         {
-            days[idx].wind_peak_mph = (float)wind_speed->valuedouble;
+            days[idx].wind_peak_mph = wind_speed_f;
         }
 
         cJSON *weather_arr = cJSON_GetObjectItemCaseSensitive(entry, "weather");
         cJSON *weather0 = (weather_arr != NULL && cJSON_IsArray(weather_arr)) ? cJSON_GetArrayItem(weather_arr, 0) : NULL;
         cJSON *weather_id = (weather0 != NULL) ? cJSON_GetObjectItemCaseSensitive(weather0, "id") : NULL;
         cJSON *weather_icon = (weather0 != NULL) ? cJSON_GetObjectItemCaseSensitive(weather0, "icon") : NULL;
+        int weather_id_value = json_read_int(weather_id, 0);
+        const char *weather_icon_value = json_read_string(weather_icon, NULL);
         drawing_weather_icon_t mapped_icon = map_owm_condition_to_icon(
-            cJSON_IsNumber(weather_id) ? weather_id->valueint : 0,
-            cJSON_IsString(weather_icon) ? weather_icon->valuestring : NULL);
+            weather_id_value,
+            weather_icon_value);
 
         int icon_score = 0;
         if (tm_local.tm_hour == 12)
@@ -301,10 +357,12 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         if (days[idx].hourly_count < APP_FORECAST_HOURLY_MAX)
         {
             forecast_hourly_payload_t *slot = &days[idx].hourly[days[idx].hourly_count];
-            int temp_i = (int)lroundf((float)temp->valuedouble);
+            int temp_i = (int)lroundf(temp_f);
             cJSON *feels_like = cJSON_GetObjectItemCaseSensitive(main_obj, "feels_like");
-            int feels_i = cJSON_IsNumber(feels_like) ? (int)lroundf((float)feels_like->valuedouble) : temp_i;
-            int wind_i = cJSON_IsNumber(wind_speed) ? (int)lroundf((float)wind_speed->valuedouble) : 0;
+            float feels_like_f = temp_f;
+            (void)json_read_float(feels_like, &feels_like_f);
+            int feels_i = (int)lroundf(feels_like_f);
+            int wind_i = has_wind_speed ? (int)lroundf(wind_speed_f) : 0;
 
             slot->temp_f = temp_i;
             slot->feels_f = feels_i;
