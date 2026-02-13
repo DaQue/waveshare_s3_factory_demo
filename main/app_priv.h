@@ -64,6 +64,8 @@
 #define APP_FORECAST_HOURLY_MAX 12
 #define APP_WIFI_SCAN_MAX_APS 12
 #define APP_WIFI_SCAN_VISIBLE_APS 8
+#define APP_WIFI_SSID_MAX_LEN 32
+#define APP_WIFI_PASS_MAX_LEN 64
 
 #if __has_include("wifi_local.h")
 #include "wifi_local.h"
@@ -141,6 +143,12 @@ typedef struct {
 } forecast_payload_t;
 
 typedef struct {
+    char wifi_ssid[APP_WIFI_SSID_MAX_LEN + 1];
+    char wifi_pass[APP_WIFI_PASS_MAX_LEN + 1];
+    bool wifi_override_active;
+} app_wifi_config_t;
+
+typedef struct {
     drawing_screen_view_t view;
     uint8_t forecast_page;
     bool has_weather;
@@ -200,6 +208,7 @@ extern i2c_master_bus_handle_t g_i2c_bus_handle;
 extern app_state_t g_app;
 extern forecast_payload_t g_forecast_cache;
 extern touch_swipe_state_t g_touch_swipe;
+extern app_wifi_config_t g_wifi_config;
 extern bool g_wifi_connected;
 extern uint32_t g_wifi_connected_ms;
 
@@ -241,9 +250,16 @@ void app_apply_indoor_data(const bsp_bme280_data_t *indoor);
 void app_apply_forecast_payload(const forecast_payload_t *fc);
 void app_apply_weather(const weather_payload_t *wx);
 void app_state_init_defaults(void);
+void app_config_load_from_nvs(void);
+const char *app_config_wifi_ssid(void);
+const char *app_config_wifi_pass(void);
+bool app_config_wifi_override_active(void);
+esp_err_t app_config_set_wifi_override(const char *ssid, const char *pass);
+esp_err_t app_config_clear_wifi_override(void);
+void app_config_boot_console_window(uint32_t timeout_ms);
 
 void io_expander_init(i2c_master_bus_handle_t bus_handle);
 void lv_port_init_local(void);
-bool wait_for_wifi_ip(char *ip_out, size_t ip_out_size);
+bool wait_for_wifi_ip(const char *ssid, char *ip_out, size_t ip_out_size);
 bool weather_fetch_once(void);
 void weather_task(void *arg);

@@ -194,7 +194,7 @@ void lv_port_init_local(void)
     (void)lvgl_disp;
 }
 
-bool wait_for_wifi_ip(char *ip_out, size_t ip_out_size)
+bool wait_for_wifi_ip(const char *ssid, char *ip_out, size_t ip_out_size)
 {
     const int poll_ms = 500;
     int waited_ms = 0;
@@ -212,7 +212,7 @@ bool wait_for_wifi_ip(char *ip_out, size_t ip_out_size)
         if ((waited_ms % 5000) == 0)
         {
             app_set_status_fmt("wifi: connecting... %d s", waited_ms / 1000);
-            app_set_bottom_fmt("ssid: %s", WIFI_SSID_LOCAL);
+            app_set_bottom_fmt("ssid: %s", (ssid != NULL && ssid[0] != '\0') ? ssid : "(unset)");
             app_render_if_dirty();
         }
 
@@ -234,11 +234,14 @@ void weather_task(void *arg)
     uint32_t next_i2c_scan_ms = 0;
     uint32_t next_wifi_scan_ms = 0;
 
-    if (strlen(WIFI_SSID_LOCAL) == 0 || strlen(WIFI_PASS_LOCAL) == 0 || strlen(WEATHER_API_KEY_LOCAL) == 0)
+    const char *wifi_ssid = app_config_wifi_ssid();
+    const char *wifi_pass = app_config_wifi_pass();
+
+    if (wifi_ssid == NULL || wifi_pass == NULL || strlen(wifi_ssid) == 0 || strlen(WEATHER_API_KEY_LOCAL) == 0)
     {
-        app_set_status_fmt("config: missing wifi_local.h values");
+        app_set_status_fmt("config: missing Wi-Fi or API key");
         snprintf(g_app.weather_text, sizeof(g_app.weather_text),
-                 "set WIFI_SSID_LOCAL, WIFI_PASS_LOCAL, WEATHER_API_KEY_LOCAL");
+                 "set WEATHER_API_KEY_LOCAL and Wi-Fi credentials");
         app_mark_dirty(false, true, false, false);
         app_set_bottom_fmt("offline config error");
         app_render_if_dirty();
@@ -250,13 +253,13 @@ void weather_task(void *arg)
     app_set_bottom_fmt("network bring-up");
     app_render_if_dirty();
 
-    bsp_wifi_init(WIFI_SSID_LOCAL, WIFI_PASS_LOCAL);
+    bsp_wifi_init(wifi_ssid, wifi_pass);
 
-    app_set_status_fmt("wifi: connect -> %s", WIFI_SSID_LOCAL);
+    app_set_status_fmt("wifi: connect -> %s", wifi_ssid);
     app_render_if_dirty();
 
     char ip[32] = {0};
-    if (!wait_for_wifi_ip(ip, sizeof(ip)))
+    if (!wait_for_wifi_ip(wifi_ssid, ip, sizeof(ip)))
     {
         app_set_status_fmt("wifi: timeout waiting for IP");
         snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather skipped (no network)");
@@ -268,7 +271,9 @@ void weather_task(void *arg)
     }
 
     app_set_status_fmt("wifi: connected ip %s", ip);
-    app_set_bottom_fmt("online %s", WEATHER_QUERY_LOCAL);
+    app_set_bottom_fmt("online %s (%s)",
+                       WEATHER_QUERY_LOCAL,
+                       app_config_wifi_override_active() ? "saved Wi-Fi" : "default Wi-Fi");
     app_render_if_dirty();
 
     g_wifi_connected = true;

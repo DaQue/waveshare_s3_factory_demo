@@ -5,7 +5,7 @@ static bool is_https_url(const char *url)
     return (url != NULL) && (strncmp(url, "https://", 8) == 0);
 }
 
-static esp_http_client_handle_t http_client_create(const char *url, bool use_cert_bundle)
+static esp_http_client_handle_t http_client_create(const char *url)
 {
     esp_http_client_config_t config = {};
     config.url = url;
@@ -16,21 +16,9 @@ static esp_http_client_handle_t http_client_create(const char *url, bool use_cer
 
     if (is_https_url(url))
     {
-        const ptrdiff_t chain_len = openweather_trust_chain_pem_end - openweather_trust_chain_pem_start;
         config.tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2;
         config.skip_cert_common_name_check = false;
-        if (use_cert_bundle)
-        {
-            config.crt_bundle_attach = esp_crt_bundle_attach;
-        }
-        else
-        {
-            config.cert_pem = OPENWEATHER_CA_CERT_PEM;
-            if (chain_len > 0)
-            {
-                config.cert_len = (size_t)chain_len;
-            }
-        }
+        config.crt_bundle_attach = esp_crt_bundle_attach;
     }
 
     return esp_http_client_init(&config);
@@ -130,120 +118,93 @@ bool weather_fetch_once(void)
         return false;
     }
 
-    for (int attempt = 0; attempt < 2; ++attempt)
+    esp_http_client_handle_t client = http_client_create(weather_url);
+    if (client == NULL)
     {
-        bool use_cert_bundle = (attempt == 1);
-        if (use_cert_bundle)
+        app_set_status_fmt("https: client init failed");
+        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
+    }
+    struct http_client_guard_t {
+        esp_http_client_handle_t handle;
+        ~http_client_guard_t()
         {
-            app_set_status_fmt("https: retry with cert bundle");
-            app_set_bottom_fmt("retrying secure connect...");
-            app_render_if_dirty();
-        }
-
-        esp_http_client_handle_t client = http_client_create(weather_url, use_cert_bundle);
-        if (client == NULL)
-        {
-            if (!use_cert_bundle)
+            if (handle != NULL)
             {
-                continue;
+                esp_http_client_cleanup(handle);
             }
-            app_set_status_fmt("https: client init failed");
-            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            return false;
         }
-        struct http_client_guard_t {
-            esp_http_client_handle_t handle;
-            ~http_client_guard_t()
-            {
-                if (handle != NULL)
-                {
-                    esp_http_client_cleanup(handle);
-                }
-            }
-        } client_guard = {client};
+    } client_guard = {client};
 
-        app_set_status_fmt("https: GET weather (%s)", WEATHER_QUERY_LOCAL);
-        app_set_bottom_fmt("fetching current conditions...");
-        app_render_if_dirty();
+    app_set_status_fmt("https: GET weather (%s)", WEATHER_QUERY_LOCAL);
+    app_set_bottom_fmt("fetching current conditions...");
+    app_render_if_dirty();
 
-        static char weather_response[WEATHER_HTTP_BUFFER_SIZE] = {0};
-        int http_status = 0;
-        int http_bytes = 0;
-        esp_err_t err = http_get_text_once(client, weather_url, weather_response, sizeof(weather_response), &http_status, &http_bytes);
+    static char weather_response[WEATHER_HTTP_BUFFER_SIZE] = {0};
+    int http_status = 0;
+    int http_bytes = 0;
+    esp_err_t err = http_get_text_once(client, weather_url, weather_response, sizeof(weather_response), &http_status, &http_bytes);
 
-        if (err != ESP_OK)
-        {
-            app_set_status_fmt("https: transport error %s", esp_err_to_name(err));
-            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            if (!use_cert_bundle && err == ESP_ERR_HTTP_CONNECT)
-            {
-                continue;
-            }
-            return false;
-        }
-
-        app_set_status_fmt("https: status %d bytes %d", http_status, http_bytes);
-
-        if (http_status != 200)
-        {
-            snprintf(g_app.weather_text, sizeof(g_app.weather_text), "API returned status %d", http_status);
-            app_mark_dirty(false, true, false, false);
-            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            return false;
-        }
-
-        weather_payload_t wx = {};
-        if (!parse_weather_json(weather_response, &wx))
-        {
-            app_set_status_fmt("json: parse failed");
-            snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather JSON parse failed");
-            app_mark_dirty(false, true, false, false);
-            app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            return false;
-        }
-
-        app_apply_weather(&wx);
-
-        app_set_status_fmt("https: GET forecast");
-        app_render_if_dirty();
-
-        static char forecast_response[WEATHER_FORECAST_HTTP_BUFFER_SIZE] = {0};
-        int fc_status = 0;
-        int fc_bytes = 0;
-        err = http_get_text_once(client, forecast_url, forecast_response, sizeof(forecast_response), &fc_status, &fc_bytes);
-        if (err != ESP_OK)
-        {
-            app_set_status_fmt("https: forecast transport %s", esp_err_to_name(err));
-            app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            if (!use_cert_bundle && err == ESP_ERR_HTTP_CONNECT)
-            {
-                continue;
-            }
-            return false;
-        }
-
-        if (fc_status != 200)
-        {
-            app_set_status_fmt("https: forecast status %d", fc_status);
-            app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            return false;
-        }
-
-        memset(&g_forecast_cache, 0, sizeof(g_forecast_cache));
-        if (!parse_forecast_json(forecast_response, &g_forecast_cache))
-        {
-            app_set_status_fmt("json: forecast parse failed");
-            app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-            return false;
-        }
-
-        app_apply_forecast_payload(&g_forecast_cache);
-        app_set_status_fmt("sync: ok %s %s", wx.city, wx.country);
-        app_set_bottom_fmt("next sync in %u min", (unsigned)(WEATHER_REFRESH_MS / 60000));
-        return true;
+    if (err != ESP_OK)
+    {
+        app_set_status_fmt("https: transport error %s", esp_err_to_name(err));
+        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
     }
 
-    app_set_status_fmt("https: secure connect failed");
-    app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
-    return false;
+    app_set_status_fmt("https: status %d bytes %d", http_status, http_bytes);
+
+    if (http_status != 200)
+    {
+        snprintf(g_app.weather_text, sizeof(g_app.weather_text), "API returned status %d", http_status);
+        app_mark_dirty(false, true, false, false);
+        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
+    }
+
+    weather_payload_t wx = {};
+    if (!parse_weather_json(weather_response, &wx))
+    {
+        app_set_status_fmt("json: parse failed");
+        snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather JSON parse failed");
+        app_mark_dirty(false, true, false, false);
+        app_set_bottom_fmt("retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
+    }
+
+    app_apply_weather(&wx);
+
+    app_set_status_fmt("https: GET forecast");
+    app_render_if_dirty();
+
+    static char forecast_response[WEATHER_FORECAST_HTTP_BUFFER_SIZE] = {0};
+    int fc_status = 0;
+    int fc_bytes = 0;
+    err = http_get_text_once(client, forecast_url, forecast_response, sizeof(forecast_response), &fc_status, &fc_bytes);
+    if (err != ESP_OK)
+    {
+        app_set_status_fmt("https: forecast transport %s", esp_err_to_name(err));
+        app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
+    }
+
+    if (fc_status != 200)
+    {
+        app_set_status_fmt("https: forecast status %d", fc_status);
+        app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
+    }
+
+    memset(&g_forecast_cache, 0, sizeof(g_forecast_cache));
+    if (!parse_forecast_json(forecast_response, &g_forecast_cache))
+    {
+        app_set_status_fmt("json: forecast parse failed");
+        app_set_bottom_fmt("forecast retry in %u s", (unsigned)(WEATHER_RETRY_MS / 1000));
+        return false;
+    }
+
+    app_apply_forecast_payload(&g_forecast_cache);
+    app_set_status_fmt("sync: ok %s %s", wx.city, wx.country);
+    app_set_bottom_fmt("next sync in %u min", (unsigned)(WEATHER_REFRESH_MS / 60000));
+    return true;
 }

@@ -6,6 +6,7 @@ idf_component_register(
         "app_weather.cpp"
         "app_weather_http.cpp"
         "app_runtime.cpp"
+        "app_config.cpp"
         "drawing_screen.c"
         "drawing_screen_canvas.c"
         "drawing_screen_text.c"

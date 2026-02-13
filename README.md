@@ -32,6 +32,25 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 Adjust the serial port as needed.
 
+## Runtime Wi-Fi Override (Persistent)
+By default, Wi-Fi credentials come from `main/wifi_local.h`.
+You can override them at runtime and save them in NVS (persistent across reboot).
+
+On boot, a short config window opens (currently 8 seconds). During that window, type:
+
+```text
+wifi show
+wifi set <ssid> <password>
+wifi set "My SSID" "My Password"
+wifi clear
+wifi reboot
+```
+
+Notes:
+- `wifi set ...` and `wifi clear` update stored credentials.
+- `wifi reboot` applies saved credentials immediately.
+- If no override is saved, firmware falls back to `wifi_local.h`.
+
 ## clang-tidy
 Build once first so `build/compile_commands.json` exists, then run:
 

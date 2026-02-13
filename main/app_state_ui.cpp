@@ -11,6 +11,7 @@ i2c_master_bus_handle_t g_i2c_bus_handle = NULL;
 app_state_t g_app = {};
 forecast_payload_t g_forecast_cache = {};
 touch_swipe_state_t g_touch_swipe = {};
+app_wifi_config_t g_wifi_config = {};
 bool g_wifi_connected = false;
 uint32_t g_wifi_connected_ms = 0;
 

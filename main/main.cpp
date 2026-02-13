@@ -10,6 +10,8 @@ extern "C" void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    app_config_load_from_nvs();
+
     i2c_master_bus_handle_t i2c_bus_handle = bsp_i2c_init();
     g_i2c_bus_handle = i2c_bus_handle;
 
@@ -53,6 +55,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(APP_TAG, "State-driven weather UI initialized");
 
+    app_config_boot_console_window(8000);
     xTaskCreatePinnedToCore(weather_task, "weather_task", 1024 * 16, NULL, 3, NULL, 1);
 
     while (true)
