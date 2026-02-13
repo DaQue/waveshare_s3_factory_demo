@@ -1,5 +1,14 @@
 idf_component_register(
-    SRCS "drawing_screen.c" "main.cpp"
+    SRCS
+        "main.cpp"
+        "app_state_ui.cpp"
+        "app_touch_forecast.cpp"
+        "app_weather.cpp"
+        "app_weather_http.cpp"
+        "app_runtime.cpp"
+        "drawing_screen.c"
+        "drawing_screen_canvas.c"
+        "drawing_screen_text.c"
     INCLUDE_DIRS "."
     REQUIRES
         nvs_flash

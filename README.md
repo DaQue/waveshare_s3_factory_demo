@@ -32,6 +32,19 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 Adjust the serial port as needed.
 
+## clang-tidy
+Build once first so `build/compile_commands.json` exists, then run:
+
+```bash
+tools/run-clang-tidy.sh main/main.cpp
+```
+
+Lint all C/C++ files under `main/`:
+
+```bash
+tools/run-clang-tidy.sh
+```
+
 ## Notes
 - This copy intentionally excludes the old `build/` directory.
 - `sdkconfig` is included from the known-working baseline.

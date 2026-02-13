@@ -22,6 +22,10 @@
 
 #define BME280_CHIP_ID 0x60
 #define BME280_RESET_CMD 0xB6
+#define BME280_I2C_LOCK_TIMEOUT_MS 100
+#define BME280_I2C_XFER_TIMEOUT_MS 60
+#define BME280_PROBE_RETRIES 3
+#define BME280_CHIP_ID_RETRIES 3
 
 static const char *TAG = "bsp_bme280";
 
@@ -51,6 +55,17 @@ static bool s_available = false;
 static uint8_t s_address = 0;
 static bme280_calib_t s_calib = {};
 static int32_t s_t_fine = 0;
+static bool s_not_found_logged = false;
+
+static void bme280_release_device(void)
+{
+    if (s_dev_handle != NULL)
+    {
+        i2c_master_bus_rm_device(s_dev_handle);
+        s_dev_handle = NULL;
+    }
+    s_available = false;
+}
 
 static int16_t sign_extend_12(uint16_t raw)
 {
@@ -69,10 +84,14 @@ static esp_err_t bme280_reg_read(uint8_t reg_addr, uint8_t *data, size_t len)
     }
 
     esp_err_t ret = ESP_FAIL;
-    if (bsp_i2c_lock(100))
+    if (bsp_i2c_lock(BME280_I2C_LOCK_TIMEOUT_MS))
     {
-        ret = i2c_master_transmit_receive(s_dev_handle, &reg_addr, 1, data, len, pdMS_TO_TICKS(1000));
+        ret = i2c_master_transmit_receive(s_dev_handle, &reg_addr, 1, data, len, BME280_I2C_XFER_TIMEOUT_MS);
         bsp_i2c_unlock();
+    }
+    else
+    {
+        ret = ESP_ERR_TIMEOUT;
     }
     return ret;
 }
@@ -86,10 +105,14 @@ static esp_err_t bme280_reg_write_u8(uint8_t reg_addr, uint8_t value)
 
     uint8_t buf[2] = {reg_addr, value};
     esp_err_t ret = ESP_FAIL;
-    if (bsp_i2c_lock(100))
+    if (bsp_i2c_lock(BME280_I2C_LOCK_TIMEOUT_MS))
     {
-        ret = i2c_master_transmit(s_dev_handle, buf, sizeof(buf), pdMS_TO_TICKS(1000));
+        ret = i2c_master_transmit(s_dev_handle, buf, sizeof(buf), BME280_I2C_XFER_TIMEOUT_MS);
         bsp_i2c_unlock();
+    }
+    else
+    {
+        ret = ESP_ERR_TIMEOUT;
     }
     return ret;
 }
@@ -161,13 +184,53 @@ static esp_err_t bme280_configure(void)
 
 static bool bme280_probe_addr(i2c_master_bus_handle_t bus_handle, uint8_t addr)
 {
-    esp_err_t ret = ESP_FAIL;
-    if (bsp_i2c_lock(100))
+    for (int attempt = 0; attempt < BME280_PROBE_RETRIES; ++attempt)
     {
-        ret = i2c_master_probe(bus_handle, addr, 100);
-        bsp_i2c_unlock();
+        esp_err_t ret = ESP_ERR_TIMEOUT;
+        if (bsp_i2c_lock(BME280_I2C_LOCK_TIMEOUT_MS))
+        {
+            ret = i2c_master_probe(bus_handle, addr, BME280_I2C_XFER_TIMEOUT_MS);
+            bsp_i2c_unlock();
+        }
+        else
+        {
+            ESP_LOGW(TAG, "probe 0x%02X attempt %d/%d: i2c lock timeout",
+                     addr, attempt + 1, BME280_PROBE_RETRIES);
+        }
+        if (ret == ESP_OK)
+        {
+            return true;
+        }
+        if (attempt == BME280_PROBE_RETRIES - 1)
+        {
+            ESP_LOGW(TAG, "probe 0x%02X failed: %s", addr, esp_err_to_name(ret));
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
-    return ret == ESP_OK;
+    return false;
+}
+
+static esp_err_t bme280_read_chip_id(uint8_t *chip_id_out)
+{
+    if (chip_id_out == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t last_err = ESP_FAIL;
+    uint8_t chip_id = 0;
+    for (int attempt = 0; attempt < BME280_CHIP_ID_RETRIES; ++attempt)
+    {
+        esp_err_t ret = bme280_reg_read(BME280_REG_CHIP_ID, &chip_id, 1);
+        if (ret == ESP_OK)
+        {
+            *chip_id_out = chip_id;
+            return ESP_OK;
+        }
+        last_err = ret;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return last_err;
 }
 
 esp_err_t bsp_bme280_init(i2c_master_bus_handle_t bus_handle)
@@ -176,6 +239,12 @@ esp_err_t bsp_bme280_init(i2c_master_bus_handle_t bus_handle)
     {
         return ESP_OK;
     }
+    if (bus_handle == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bme280_release_device();
 
     uint8_t addresses[] = {BME280_ADDR_PRIMARY, BME280_ADDR_SECONDARY};
     for (size_t i = 0; i < sizeof(addresses); ++i)
@@ -190,12 +259,14 @@ esp_err_t bsp_bme280_init(i2c_master_bus_handle_t bus_handle)
             .dev_addr_length = I2C_ADDR_BIT_LEN_7,
             .device_address = addr,
             .scl_speed_hz = 100000,
+            .scl_wait_us = 2000,
         };
 
         i2c_master_dev_handle_t candidate = NULL;
         esp_err_t ret = i2c_master_bus_add_device(bus_handle, &dev_cfg, &candidate);
         if (ret != ESP_OK)
         {
+            ESP_LOGW(TAG, "add_device 0x%02X failed: %s", addr, esp_err_to_name(ret));
             continue;
         }
 
@@ -203,36 +274,48 @@ esp_err_t bsp_bme280_init(i2c_master_bus_handle_t bus_handle)
         s_address = addr;
 
         uint8_t chip_id = 0;
-        ret = bme280_reg_read(BME280_REG_CHIP_ID, &chip_id, 1);
-        if (ret != ESP_OK || chip_id != BME280_CHIP_ID)
+        ret = bme280_read_chip_id(&chip_id);
+        if (ret != ESP_OK)
         {
-            i2c_master_bus_rm_device(candidate);
-            s_dev_handle = NULL;
+            ESP_LOGW(TAG, "read chip-id @0x%02X failed: %s", addr, esp_err_to_name(ret));
+            bme280_release_device();
+            continue;
+        }
+        if (chip_id != BME280_CHIP_ID)
+        {
+            ESP_LOGW(TAG, "chip-id mismatch @0x%02X: 0x%02X (expected 0x%02X)",
+                     addr, chip_id, BME280_CHIP_ID);
+            bme280_release_device();
             continue;
         }
 
         ret = bme280_read_calibration();
         if (ret != ESP_OK)
         {
-            i2c_master_bus_rm_device(candidate);
-            s_dev_handle = NULL;
+            ESP_LOGW(TAG, "calibration read failed @0x%02X: %s", addr, esp_err_to_name(ret));
+            bme280_release_device();
             continue;
         }
 
         ret = bme280_configure();
         if (ret != ESP_OK)
         {
-            i2c_master_bus_rm_device(candidate);
-            s_dev_handle = NULL;
+            ESP_LOGW(TAG, "configure failed @0x%02X: %s", addr, esp_err_to_name(ret));
+            bme280_release_device();
             continue;
         }
 
         s_available = true;
+        s_not_found_logged = false;
         ESP_LOGI(TAG, "BME280 initialized at address 0x%02X", s_address);
         return ESP_OK;
     }
 
-    ESP_LOGW(TAG, "BME280 not detected (checked 0x76, 0x77)");
+    if (!s_not_found_logged)
+    {
+        ESP_LOGW(TAG, "BME280 not detected (checked 0x76, 0x77)");
+        s_not_found_logged = true;
+    }
     return ESP_ERR_NOT_FOUND;
 }
 
@@ -256,6 +339,8 @@ esp_err_t bsp_bme280_read(bsp_bme280_data_t *out)
     esp_err_t ret = bme280_reg_read(BME280_REG_STATUS, &status, 1);
     if (ret != ESP_OK)
     {
+        ESP_LOGW(TAG, "status read failed @0x%02X: %s", s_address, esp_err_to_name(ret));
+        bme280_release_device();
         return ret;
     }
     if (status & 0x08)
@@ -267,6 +352,8 @@ esp_err_t bsp_bme280_read(bsp_bme280_data_t *out)
     ret = bme280_reg_read(BME280_REG_PRESS_MSB, raw, sizeof(raw));
     if (ret != ESP_OK)
     {
+        ESP_LOGW(TAG, "data read failed @0x%02X: %s", s_address, esp_err_to_name(ret));
+        bme280_release_device();
         return ret;
     }
 
