@@ -19,6 +19,23 @@ static int app_forecast_row_from_y(int16_t y)
     return row;
 }
 
+static bool app_is_hourly_close_tap(int16_t x, int16_t y)
+{
+    if (y < 0 || y >= 42)
+    {
+        return false;
+    }
+
+    lv_disp_t *disp = lv_disp_get_default();
+    int screen_w = (disp != NULL) ? (int)lv_disp_get_hor_res(disp) : EXAMPLE_LCD_V_RES;
+    int close_x_min = screen_w - 144;
+    if (close_x_min < 0)
+    {
+        close_x_min = 0;
+    }
+    return x >= close_x_min;
+}
+
 void app_build_forecast_hourly_visible(void)
 {
     if (!g_app.forecast_hourly_open || g_app.forecast_hourly_day >= g_app.forecast_row_count)
@@ -141,8 +158,7 @@ static void app_handle_touch_tap(int16_t x, int16_t y)
 
     if (g_app.forecast_hourly_open)
     {
-        // Tap near top bar to return to day list.
-        if (y < 42)
+        if (app_is_hourly_close_tap(x, y))
         {
             app_close_forecast_hourly();
         }

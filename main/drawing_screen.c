@@ -311,7 +311,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             if (data->forecast_hourly_open)
             {
                 lv_label_set_text(header_time_label, text_or_fallback(data->forecast_hourly_day_title, "Hourly"));
-                lv_label_set_text(status_label, "< Days");
+                lv_label_set_text(status_label, "◀ Main");
             }
             else
             {
@@ -409,7 +409,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);
             if (data->forecast_hourly_open)
             {
-                lv_label_set_text(bottom_label, "(swipe up/down hours, left/right pages)");
+                lv_label_set_text(bottom_label, "(tap ◀ Main, swipe up/down hours, left/right pages)");
             }
             else
             {
