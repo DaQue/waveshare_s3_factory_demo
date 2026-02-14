@@ -409,7 +409,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);
             if (data->forecast_hourly_open)
             {
-                lv_label_set_text(bottom_label, "(tap ◀ Main, swipe up/down hours, left/right pages)");
+                lv_label_set_text(bottom_label, "(tap ◀ Main, swipe up/down for hours)");
             }
             else
             {

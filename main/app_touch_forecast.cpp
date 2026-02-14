@@ -234,12 +234,14 @@ void app_poll_touch_swipe(uint32_t now_ms)
         return;
     }
 
-    if (g_app.view == DRAWING_SCREEN_VIEW_FORECAST && g_app.forecast_hourly_open &&
-        abs_delta_y >= TOUCH_SWIPE_MIN_Y_PX && abs_delta_x <= TOUCH_SWIPE_MAX_X_PX && abs_delta_y > abs_delta_x)
+    if (g_app.view == DRAWING_SCREEN_VIEW_FORECAST && g_app.forecast_hourly_open)
     {
-        g_touch_swipe.last_swipe_ms = now_ms;
-        // Swipe up shows later hours; swipe down shows earlier hours.
-        app_scroll_forecast_hourly((delta_y < 0) ? 1 : -1);
+        if (abs_delta_y >= TOUCH_SWIPE_MIN_Y_PX && abs_delta_y >= abs_delta_x)
+        {
+            g_touch_swipe.last_swipe_ms = now_ms;
+            // Swipe up shows later hours; swipe down shows earlier hours.
+            app_scroll_forecast_hourly((delta_y < 0) ? 1 : -1);
+        }
         return;
     }
 

@@ -37,3 +37,12 @@ Path: `/media/david/Shared/cprojects/waveshare_s3_factory_display`
 
 - Current firmware is intentionally display-focused and not full-feature baseline behavior.
 - If needed, disabled subsystems can be re-enabled incrementally after graphics validation.
+
+## Update - 2026-02-14
+
+- Forecast hourly touch handling was adjusted in `main/app_touch_forecast.cpp`:
+  - In hourly mode, vertical swipe detection now uses `abs_delta_y >= abs_delta_x`.
+  - While hourly mode is open, the gesture handler exits early after evaluating vertical swipe.
+- Forecast footer hint text was updated in `main/drawing_screen.c` to:
+  - `(tap ◀ Main, swipe up/down for hours)`
+- Build and flash check completed successfully on `/dev/ttyACM0`.
