@@ -1,60 +1,51 @@
 # Project Status
 
-Date: 2026-02-08
+Date: 2026-02-14
 Repo: `waveshare_s3_factory_display`
 Path: `/media/david/Shared/cprojects/waveshare_s3_factory_display`
+Remote: `git@github.com:DaQue/waveshare_s3_factory_demo.git`
 
-## Current State
+## Current Runtime State
+- Firmware builds and flashes successfully with ESP-IDF 5.4.
+- Touch navigation is working again (swipe plus bottom-edge tap fallback).
+- BME280 startup path is stable and detects sensor on `0x77` when hardware is present.
+- Weather sync (current + forecast) is succeeding over HTTPS.
 
-- New ESP-IDF C/C++ project is set up under `/media/david/Shared/cprojects`.
-- Git repo is initialized on branch `main`.
-- Remote is configured to `git@github.com:DaQue/waveshare_s3_factory_demo.git`.
-- Earlier commits were pushed to GitHub, including a firmware backup binary.
+## Active UI Flow
+- Page order: `Now -> Forecast -> I2C Scan -> Wi-Fi Scan -> About -> Now`
+- Home (`Now`) includes:
+  - Current weather icon + temp
+  - Indoor sensor lines
+  - Compact 3-day preview with icon and Hi/Low
+- Forecast page supports hourly drill-down.
 
-## What Was Changed Most Recently
+## Key Fixes Landed (2026-02-14)
+- Touch reliability and coordinates:
+  - `components/esp_bsp/bsp_touch.c`
+  - Removed over-aggressive rejection and fixed touch count propagation.
+- BME280 robustness:
+  - `components/esp_bsp/bsp_bme280.c`
+  - Added direct chip-id read fallback after probe miss.
+  - Reduced I2C transfer timeout to avoid long bus stalls.
+- Runtime stability:
+  - `main/app_runtime.cpp`
+  - Removed aggressive BME re-init loop that could trigger watchdog under bus issues.
+- Forecast content and home preview:
+  - `main/app_weather.cpp`
+  - `main/app_touch_forecast.cpp`
+  - `main/app_state_ui.cpp`
+  - `main/drawing_screen.c`
+  - Added compact daily preview data path (day/icon/hi/low) to the home screen.
 
-- Simplified app startup to focus on display graphics testing.
-- In `main/main.cpp`:
-  - Kept core display bring-up path.
-  - Commented out most non-display startup (Wi-Fi, SD card, touch registration, sensor/RTC extras).
-  - Kept app alive in a simple loop after drawing screen init.
-- Replaced `main/drawing_screen.c` scene with:
-  - Full-screen green background.
-  - Blue square.
-  - Wide X inside the square.
-  - Text: `Graphics work so far!`.
+## Known Caveats
+- If `/dev/ttyACM0` monitor access fails intermittently, a stale serial monitor process is usually holding the port.
+- `clouds` and `overcast` icon assets are currently identical image files, so those two conditions appear the same.
 
-## Build and Flash Status
-
-- Build: successful with ESP-IDF 5.4.
-- Output binary:
-  - `build/waveshare_s3_factory_display.bin`
-- Flash to board:
-  - Port: `/dev/ttyACM0`
-  - Result: successful write + hard reset.
-
-## Notes
-
-- Current firmware is intentionally display-focused and not full-feature baseline behavior.
-- If needed, disabled subsystems can be re-enabled incrementally after graphics validation.
-
-## Update - 2026-02-14
-
-- Forecast hourly touch handling was adjusted in `main/app_touch_forecast.cpp`:
-  - In hourly mode, vertical swipe detection now uses `abs_delta_y >= abs_delta_x`.
-  - While hourly mode is open, the gesture handler exits early after evaluating vertical swipe.
-- Forecast footer hint text was updated in `main/drawing_screen.c` to:
-  - `(tap ◀ Main, swipe up/down for hours)`
-- Build and flash check completed successfully on `/dev/ttyACM0`.
-
-## Update - 2026-02-14 (About Screen)
-
-- Added a new swipe page: `DRAWING_SCREEN_VIEW_ABOUT`.
-- Navigation order is now:
-  - `Now -> Forecast -> I2C Scan -> Wi-Fi Scan -> About -> Now`
-- About page shows:
-  - App: `Waveshare S3 Weather Demo`
-  - Author: `David Queen`
-  - GitHub: `github.com/DaQue/Waveshare-S3-Weather-Demo` (`@DaQue`)
-  - Version: `PROJECT_VER` (current build-time version string)
-- Build verification passed after the update.
+## Verification Checklist
+- Build: `idf.py build`
+- Flash: `idf.py -p /dev/ttyACM0 flash`
+- Monitor: `idf.py -p /dev/ttyACM0 monitor`
+- Expected logs include:
+  - `BME280 initialized at address 0x77`
+  - `Indoor sensor ready (BME280)`
+  - Weather HTTPS status `200`

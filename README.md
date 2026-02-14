@@ -1,42 +1,47 @@
 # waveshare_s3_factory_display
 
-ESP-IDF C/C++ starter project cloned from a known-working Waveshare S3 factory demo on 2026-02-08.
+Weather dashboard firmware for the Waveshare ESP32-S3 3.5" touch display, built with ESP-IDF.
 
-This project keeps the original display/touch/LVGL stack so you can start from a verified working baseline.
+## Overview
+- Framework: ESP-IDF 5.4
+- Language: C + C++
+- Entry point: `main/main.cpp` (`app_main`)
+- UI stack: BSP display + BSP touch + LVGL + custom drawing layer
 
-## Project Type
-- ESP-IDF project
-- Language mix: C + C++
-- Main entrypoint: `main/main.cpp` (`app_main`)
-
-## Display Baseline
-The display pipeline is initialized in `main/main.cpp` via:
-- `bsp_display_init(...)`
-- `bsp_touch_init(...)`
-- `lv_port_init()`
-- `drawing_screen_init()`
+## Features
+- Current conditions page ("Now")
+- Forecast page with daily rows and hourly drill-down
+- Home-screen 3-day preview with per-day icon and Hi/Low
+- I2C scan page
+- Wi-Fi scan page
+- About page
+- BME280 indoor sensor readout (temperature, humidity, pressure)
+- OpenWeather HTTPS sync for current + forecast
 
 ## Build
-1. Export ESP-IDF environment.
-2. Build:
-
 ```bash
+source /media/david/Shared/PutDownloadsHere/DownloadsGoHere/esp-idf-v5.4/export.sh
 idf.py set-target esp32s3
 idf.py build
 ```
 
 ## Flash
 ```bash
-idf.py -p /dev/ttyACM0 flash monitor
+source /media/david/Shared/PutDownloadsHere/DownloadsGoHere/esp-idf-v5.4/export.sh
+idf.py -p /dev/ttyACM0 flash
 ```
 
-Adjust the serial port as needed.
+## Monitor Logs
+```bash
+source /media/david/Shared/PutDownloadsHere/DownloadsGoHere/esp-idf-v5.4/export.sh
+idf.py -p /dev/ttyACM0 monitor
+```
+
+Exit monitor with `Ctrl+]`.
 
 ## Runtime Wi-Fi Override (Persistent)
-By default, Wi-Fi credentials come from `main/wifi_local.h`.
-You can override them at runtime and save them in NVS (persistent across reboot).
-
-On boot, a short config window opens (currently 8 seconds). During that window, type:
+Default credentials are read from `main/wifi_local.h`.
+During the startup config window (about 8 seconds), use:
 
 ```text
 wifi show
@@ -46,24 +51,29 @@ wifi clear
 wifi reboot
 ```
 
-Notes:
-- `wifi set ...` and `wifi clear` update stored credentials.
+- `wifi set` and `wifi clear` update NVS.
 - `wifi reboot` applies saved credentials immediately.
-- If no override is saved, firmware falls back to `wifi_local.h`.
+- If no saved override exists, firmware falls back to `wifi_local.h`.
 
-## clang-tidy
-Build once first so `build/compile_commands.json` exists, then run:
+## Touch And Sensor Troubleshooting
+- If flash works but monitor fails to open `/dev/ttyACM0`, close old monitor sessions first.
+- If touch gestures stop working, verify touch fallback taps still navigate:
+  - bottom-left tap: previous screen
+  - bottom-right tap: next screen
+- If BME280 shows `--`, check hardware/wiring first, then confirm logs include:
+  - `BME280 initialized at address 0x77`
+  - `Indoor sensor ready (BME280)`
 
-```bash
-tools/run-clang-tidy.sh main/main.cpp
-```
+## Developer Notes
+- Main UI flow and touch logic: `main/app_touch_forecast.cpp`
+- Forecast parsing and icon mapping: `main/app_weather.cpp`
+- Screen composition: `main/drawing_screen.c`
+- BME280 BSP: `components/esp_bsp/bsp_bme280.c`
+- Touch BSP: `components/esp_bsp/bsp_touch.c`
 
-Lint all C/C++ files under `main/`:
+## Lint (Optional)
+Build once to generate `build/compile_commands.json`, then:
 
 ```bash
 tools/run-clang-tidy.sh
 ```
-
-## Notes
-- This copy intentionally excludes the old `build/` directory.
-- `sdkconfig` is included from the known-working baseline.
