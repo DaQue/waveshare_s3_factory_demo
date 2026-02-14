@@ -46,3 +46,15 @@ Path: `/media/david/Shared/cprojects/waveshare_s3_factory_display`
 - Forecast footer hint text was updated in `main/drawing_screen.c` to:
   - `(tap ◀ Main, swipe up/down for hours)`
 - Build and flash check completed successfully on `/dev/ttyACM0`.
+
+## Update - 2026-02-14 (About Screen)
+
+- Added a new swipe page: `DRAWING_SCREEN_VIEW_ABOUT`.
+- Navigation order is now:
+  - `Now -> Forecast -> I2C Scan -> Wi-Fi Scan -> About -> Now`
+- About page shows:
+  - App: `Waveshare S3 Weather Demo`
+  - Author: `David Queen`
+  - GitHub: `github.com/DaQue/Waveshare-S3-Weather-Demo` (`@DaQue`)
+  - Version: `PROJECT_VER` (current build-time version string)
+- Build verification passed after the update.

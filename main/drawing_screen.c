@@ -5,6 +5,10 @@
 
 #include "esp_log.h"
 
+#ifndef PROJECT_VER
+#define PROJECT_VER "dev"
+#endif
+
 const char *DRAWING_TAG = "drawing_screen";
 
 lv_obj_t *canvas = NULL;
@@ -52,6 +56,11 @@ static const char *FALLBACK_FORECAST_DETAILS[FORECAST_ROWS] = {
     "Low --° Wind --",
     "Low --° Wind --",
 };
+
+static const char *ABOUT_APP_NAME = "Waveshare S3 Weather Demo";
+static const char *ABOUT_AUTHOR = "David Queen";
+static const char *ABOUT_GITHUB = "github.com/DaQue/Waveshare-S3-Weather-Demo";
+static const char *ABOUT_GITHUB_HANDLE = "@DaQue";
 
 void drawing_screen_init(void)
 {
@@ -332,9 +341,18 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(header_time_label, 14, 4);
             lv_obj_align(status_label, LV_ALIGN_TOP_RIGHT, -12, 8);
         }
-        else
+        else if (current_view == DRAWING_SCREEN_VIEW_WIFI_SCAN)
         {
             lv_label_set_text(header_time_label, "Wi-Fi Scan");
+            lv_label_set_text(header_title_label, "");
+            lv_label_set_text(status_label, "> About");
+
+            lv_obj_set_pos(header_time_label, 14, 4);
+            lv_obj_align(status_label, LV_ALIGN_TOP_RIGHT, -12, 8);
+        }
+        else
+        {
+            lv_label_set_text(header_time_label, "About");
             lv_label_set_text(header_title_label, "");
             lv_label_set_text(status_label, "> Main");
 
@@ -426,11 +444,31 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);
             lv_label_set_text(bottom_label, "(swipe left/right to switch pages)");
         }
-        else
+        else if (current_view == DRAWING_SCREEN_VIEW_WIFI_SCAN)
         {
             draw_wifi_background();
             lv_label_set_text(wifi_scan_title_label, "Nearby Networks");
             lv_label_set_text(wifi_scan_body_label, text_or_fallback(data->wifi_scan_text, "Wi-Fi scan pending..."));
+
+            lv_obj_set_width(bottom_label, screen_w - 24);
+            lv_obj_set_pos(bottom_label, 12, screen_h - 22);
+            lv_label_set_text(bottom_label, "(swipe left/right to switch pages)");
+        }
+        else
+        {
+            char about_body[320] = {0};
+            draw_i2c_background();
+            lv_label_set_text(i2c_scan_title_label, ABOUT_APP_NAME);
+            snprintf(about_body, sizeof(about_body),
+                     "Author: %s\n"
+                     "GitHub: %s\n"
+                     "Handle: %s\n"
+                     "Version: %s",
+                     ABOUT_AUTHOR,
+                     ABOUT_GITHUB,
+                     ABOUT_GITHUB_HANDLE,
+                     PROJECT_VER);
+            lv_label_set_text(i2c_scan_body_label, about_body);
 
             lv_obj_set_width(bottom_label, screen_w - 24);
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);

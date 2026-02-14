@@ -16,6 +16,7 @@ typedef enum {
     DRAWING_SCREEN_VIEW_FORECAST = 1,
     DRAWING_SCREEN_VIEW_I2C_SCAN = 2,
     DRAWING_SCREEN_VIEW_WIFI_SCAN = 3,
+    DRAWING_SCREEN_VIEW_ABOUT = 4,
 } drawing_screen_view_t;
 
 typedef enum {

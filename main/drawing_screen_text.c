@@ -102,6 +102,7 @@ void apply_view_visibility(drawing_screen_view_t view)
     bool forecast_visible = (view == DRAWING_SCREEN_VIEW_FORECAST);
     bool i2c_visible = (view == DRAWING_SCREEN_VIEW_I2C_SCAN);
     bool wifi_visible = (view == DRAWING_SCREEN_VIEW_WIFI_SCAN);
+    bool about_visible = (view == DRAWING_SCREEN_VIEW_ABOUT);
 
     set_obj_hidden(now_temp_label, !now_visible);
     set_obj_hidden(now_time_label, !now_visible);
@@ -118,8 +119,8 @@ void apply_view_visibility(drawing_screen_view_t view)
         set_obj_hidden(forecast_row_temp_labels[i], !forecast_visible);
     }
 
-    set_obj_hidden(i2c_scan_title_label, !i2c_visible);
-    set_obj_hidden(i2c_scan_body_label, !i2c_visible);
+    set_obj_hidden(i2c_scan_title_label, !(i2c_visible || about_visible));
+    set_obj_hidden(i2c_scan_body_label, !(i2c_visible || about_visible));
     set_obj_hidden(wifi_scan_title_label, !wifi_visible);
     set_obj_hidden(wifi_scan_body_label, !wifi_visible);
 }

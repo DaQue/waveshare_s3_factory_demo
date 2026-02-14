@@ -257,9 +257,9 @@ void app_poll_touch_swipe(uint32_t now_ms)
     int view = (int)g_app.view + step;
     if (view < 0)
     {
-        view = (int)DRAWING_SCREEN_VIEW_WIFI_SCAN;
+        view = (int)DRAWING_SCREEN_VIEW_ABOUT;
     }
-    else if (view > (int)DRAWING_SCREEN_VIEW_WIFI_SCAN)
+    else if (view > (int)DRAWING_SCREEN_VIEW_ABOUT)
     {
         view = (int)DRAWING_SCREEN_VIEW_NOW;
     }
