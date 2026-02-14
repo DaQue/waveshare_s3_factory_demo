@@ -10,7 +10,9 @@ void app_run_i2c_scan(i2c_master_bus_handle_t bus_handle)
     }
 
     char text[640] = {0};
+    char found_line[192] = {0};
     size_t used = 0;
+    size_t found_used = 0;
     int found_count = 0;
     bool found_bme_addr = false;
 
@@ -39,6 +41,10 @@ void app_run_i2c_scan(i2c_master_bus_handle_t bus_handle)
                 used += snprintf(text + used, sizeof(text) - used, "\n");
             }
             used += snprintf(text + used, sizeof(text) - used, "0x%02X ", addr);
+            if (found_used + 6 < sizeof(found_line))
+            {
+                found_used += snprintf(found_line + found_used, sizeof(found_line) - found_used, "0x%02X ", addr);
+            }
             found_count++;
             if (addr == 0x76 || addr == 0x77)
             {
@@ -65,6 +71,12 @@ void app_run_i2c_scan(i2c_master_bus_handle_t bus_handle)
                        found_bme_addr ? "present" : "missing",
                        bsp_bme280_is_available() ? "initialized" : "not initialized");
     }
+
+    ESP_LOGI(APP_TAG, "i2c scan: found=%d bme_addr=%s driver=%s addrs=[%s]",
+             found_count,
+             found_bme_addr ? "yes" : "no",
+             bsp_bme280_is_available() ? "ready" : "not-ready",
+             (found_line[0] != '\0') ? found_line : "(none)");
 
     snprintf(g_app.i2c_scan_text, sizeof(g_app.i2c_scan_text), "%s", text);
     app_mark_dirty(false, true, false, false);
@@ -304,25 +316,31 @@ void weather_task(void *arg)
             app_update_local_time();
         }
 
-        app_poll_touch_swipe(now_ms);
-
         if ((int32_t)(now_ms - next_indoor_sample_ms) >= 0)
         {
             if (!bsp_bme280_is_available())
             {
-                esp_err_t bme_init_err = bsp_bme280_init(g_i2c_bus_handle);
-                if (bme_init_err != ESP_OK)
-                {
-                    app_set_indoor_placeholders();
-                    app_mark_dirty(false, true, true, false);
-                    next_indoor_sample_ms = now_ms + BME280_RETRY_MS;
-                }
+                // Startup does multi-attempt init. Avoid repeated runtime re-init loops:
+                // they can wedge I2C if the sensor/bus is not healthy.
+                app_set_indoor_placeholders();
+                app_mark_dirty(false, true, true, false);
+                next_indoor_sample_ms = now_ms + 30000;
             }
-
-            if (bsp_bme280_is_available())
+            else
             {
                 bsp_bme280_data_t indoor = {};
-                if (bsp_bme280_read(&indoor) == ESP_OK)
+                bool indoor_ok = false;
+                for (int attempt = 0; attempt < 2; ++attempt)
+                {
+                    if (bsp_bme280_read(&indoor) == ESP_OK)
+                    {
+                        indoor_ok = true;
+                        break;
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(30));
+                }
+
+                if (indoor_ok)
                 {
                     app_apply_indoor_data(&indoor);
                     next_indoor_sample_ms = now_ms + BME280_REFRESH_MS;
@@ -336,7 +354,7 @@ void weather_task(void *arg)
             }
         }
 
-        if ((int32_t)(now_ms - next_i2c_scan_ms) >= 0)
+        if (g_app.view == DRAWING_SCREEN_VIEW_I2C_SCAN && (int32_t)(now_ms - next_i2c_scan_ms) >= 0)
         {
             app_run_i2c_scan(g_i2c_bus_handle);
             next_i2c_scan_ms = now_ms + I2C_SCAN_REFRESH_MS;
@@ -363,6 +381,8 @@ void weather_task(void *arg)
                 next_weather_sync_ms = now_ms + (ok ? WEATHER_REFRESH_MS : WEATHER_RETRY_MS);
             }
         }
+
+        app_poll_touch_swipe(now_ms);
 
         app_render_if_dirty();
         vTaskDelayUntil(&loop_tick, pdMS_TO_TICKS(UI_TICK_MS));

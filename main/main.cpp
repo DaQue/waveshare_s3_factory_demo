@@ -28,7 +28,17 @@ extern "C" void app_main(void)
     }
     bsp_touch_init(i2c_bus_handle, touch_w, touch_h, display_rotation_to_touch_rotation(EXAMPLE_DISPLAY_ROTATION));
 
-    esp_err_t bme_err = bsp_bme280_init(i2c_bus_handle);
+    // Give sensor rail time to settle and retry BME280 init to avoid sporadic boot-time misses.
+    esp_err_t bme_err = ESP_FAIL;
+    for (int attempt = 0; attempt < 12; ++attempt)
+    {
+        bme_err = bsp_bme280_init(i2c_bus_handle);
+        if (bme_err == ESP_OK)
+        {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
     if (bme_err == ESP_OK)
     {
         ESP_LOGI(APP_TAG, "Indoor sensor ready (BME280)");
@@ -44,7 +54,6 @@ extern "C" void app_main(void)
     lv_port_init_local();
 
     app_state_init_defaults();
-    app_run_i2c_scan(g_i2c_bus_handle);
 
     if (lvgl_lock_with_retry(pdMS_TO_TICKS(250), 8, "initializing drawing screen"))
     {

@@ -168,6 +168,11 @@ typedef struct {
     char forecast_title_text[96];
     char forecast_body_text[220];
     char forecast_preview_text[96];
+    uint8_t forecast_preview_count;
+    char forecast_preview_day[APP_PREVIEW_DAYS][8];
+    char forecast_preview_hi[APP_PREVIEW_DAYS][8];
+    char forecast_preview_low[APP_PREVIEW_DAYS][8];
+    drawing_weather_icon_t forecast_preview_icon[APP_PREVIEW_DAYS];
     uint8_t forecast_row_count;
     char forecast_row_title[APP_FORECAST_ROWS][24];
     char forecast_row_detail[APP_FORECAST_ROWS][48];

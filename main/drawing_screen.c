@@ -32,6 +32,7 @@ lv_obj_t *now_weather_label = NULL;
 lv_obj_t *now_stats_1_label = NULL;
 lv_obj_t *now_stats_2_label = NULL;
 lv_obj_t *now_stats_3_label = NULL;
+lv_obj_t *now_preview_labels[DRAWING_SCREEN_PREVIEW_DAYS] = {0};
 
 lv_obj_t *forecast_row_title_labels[FORECAST_ROWS] = {0};
 lv_obj_t *forecast_row_detail_labels[FORECAST_ROWS] = {0};
@@ -153,7 +154,7 @@ void drawing_screen_init(void)
     if (now_stats_1_label == NULL)
     {
         now_stats_1_label = lv_label_create(screen);
-        lv_obj_set_style_text_font(now_stats_1_label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(now_stats_1_label, &lv_font_montserrat_16, 0);
         lv_obj_set_style_text_color(now_stats_1_label, lv_color_make(225, 228, 233), 0);
     }
     lv_obj_set_pos(now_stats_1_label, 16, 246);
@@ -172,7 +173,18 @@ void drawing_screen_init(void)
         lv_obj_set_style_text_font(now_stats_3_label, &lv_font_montserrat_16, 0);
         lv_obj_set_style_text_color(now_stats_3_label, lv_color_make(184, 189, 198), 0);
     }
-    lv_obj_set_pos(now_stats_3_label, 16, 300);
+    lv_obj_set_pos(now_stats_3_label, 16, 292);
+
+    for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
+    {
+        if (now_preview_labels[i] == NULL)
+        {
+            now_preview_labels[i] = lv_label_create(screen);
+            lv_obj_set_style_text_font(now_preview_labels[i], &lv_font_montserrat_16, 0);
+            lv_obj_set_style_text_color(now_preview_labels[i], lv_color_make(214, 218, 226), 0);
+        }
+        lv_obj_set_pos(now_preview_labels[i], 286, 246 + i * 24);
+    }
 
     for (int i = 0; i < FORECAST_ROWS; ++i)
     {
@@ -244,8 +256,8 @@ void drawing_screen_init(void)
         lv_obj_set_style_text_color(bottom_label, lv_color_make(182, 187, 196), 0);
         lv_label_set_long_mode(bottom_label, LV_LABEL_LONG_CLIP);
     }
-    lv_obj_set_width(bottom_label, 220);
-    lv_obj_set_pos(bottom_label, 250, 246);
+    lv_obj_set_width(bottom_label, 210);
+    lv_obj_set_pos(bottom_label, 252, 224);
 
     apply_view_visibility(DRAWING_SCREEN_VIEW_NOW);
     draw_now_background(DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY);
@@ -260,7 +272,11 @@ void drawing_screen_init(void)
     lv_label_set_text(now_stats_1_label, "Indoor --°F");
     lv_label_set_text(now_stats_2_label, "--% RH");
     lv_label_set_text(now_stats_3_label, "-- hPa");
-    lv_label_set_text(bottom_label, "Forecast >\nTue --°   Wed --°   Thu --°");
+    lv_label_set_text(bottom_label, "3-Day Forecast");
+    for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
+    {
+        lv_label_set_text(now_preview_labels[i], "Tue --°/--°");
+    }
 
     for (int i = 0; i < FORECAST_ROWS; ++i)
     {
@@ -378,6 +394,9 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(now_time_label, 338, 90);
             lv_obj_set_pos(now_condition_label, 182, 145);
             lv_obj_set_pos(now_weather_label, 172, 178);
+            lv_obj_set_pos(now_stats_1_label, 16, 246);
+            lv_obj_set_pos(now_stats_2_label, 16, 270);
+            lv_obj_set_pos(now_stats_3_label, 16, 292);
 
             lv_label_set_text(now_temp_label, temp_compact);
             lv_label_set_text(now_time_label, text_or_fallback(data->now_time_text, "--:--"));
@@ -387,17 +406,25 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_label_set_text(now_stats_2_label, text_or_fallback(data->indoor_line_2, "--% RH"));
             lv_label_set_text(now_stats_3_label, text_or_fallback(data->indoor_line_3, "-- hPa"));
 
-            lv_obj_set_width(bottom_label, 220);
-            lv_obj_set_pos(bottom_label, 250, 246);
-            if (data->forecast_preview_text != NULL && data->forecast_preview_text[0] != '\0')
+            lv_obj_set_width(bottom_label, 210);
+            lv_obj_set_pos(bottom_label, 252, 224);
+            lv_label_set_text(bottom_label, "3-Day Forecast");
+            for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
             {
-                char preview_line[160] = {0};
-                snprintf(preview_line, sizeof(preview_line), "Forecast >\n%s", data->forecast_preview_text);
-                lv_label_set_text(bottom_label, preview_line);
-            }
-            else
-            {
-                lv_label_set_text(bottom_label, "Forecast >\nTue --°   Wed --°   Thu --°");
+                char row_line[40] = {0};
+                const char *day = (data->forecast_preview_day[i] != NULL) ? data->forecast_preview_day[i] : "";
+                const char *hi = (data->forecast_preview_hi[i] != NULL) ? data->forecast_preview_hi[i] : "--°";
+                const char *low = (data->forecast_preview_low[i] != NULL) ? data->forecast_preview_low[i] : "--°";
+                if (i < data->forecast_preview_count && day[0] != '\0')
+                {
+                    snprintf(row_line, sizeof(row_line), "%s  %s/%s", day, hi, low);
+                    draw_icon_scaled(data->forecast_preview_icon[i], 252, 244 + i * 24, 20, 20);
+                }
+                else
+                {
+                    snprintf(row_line, sizeof(row_line), "--  --°/--°");
+                }
+                lv_label_set_text(now_preview_labels[i], row_line);
             }
         }
         else if (current_view == DRAWING_SCREEN_VIEW_FORECAST)
@@ -427,7 +454,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);
             if (data->forecast_hourly_open)
             {
-                lv_label_set_text(bottom_label, "(tap ◀ Main, swipe up/down for hours)");
+                lv_label_set_text(bottom_label, "(tap ◀ Main, swipe up/down hours, left/right pages)");
             }
             else
             {

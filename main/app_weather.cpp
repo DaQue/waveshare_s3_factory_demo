@@ -25,6 +25,56 @@ static bool owm_icon_is_night(const char *icon_code)
     return (icon_code != NULL && strlen(icon_code) >= 3 && icon_code[2] == 'n');
 }
 
+static const char *forecast_condition_short(int weather_id)
+{
+    if (weather_id >= 200 && weather_id < 300)
+    {
+        return "Storm";
+    }
+    if (weather_id >= 300 && weather_id < 400)
+    {
+        return "Drizzle";
+    }
+    if (weather_id >= 500 && weather_id < 600)
+    {
+        if (weather_id == 511)
+        {
+            return "Sleet";
+        }
+        return "Rain";
+    }
+    if (weather_id >= 600 && weather_id < 700)
+    {
+        return "Snow";
+    }
+    if (weather_id >= 700 && weather_id < 800)
+    {
+        if (weather_id == 741)
+        {
+            return "Fog";
+        }
+        return "Mist";
+    }
+    if (weather_id == 800)
+    {
+        return "Clear";
+    }
+    if (weather_id == 801)
+    {
+        return "Partly Cloudy";
+    }
+    if (weather_id == 802)
+    {
+        return "Cloudy";
+    }
+    if (weather_id >= 803 && weather_id <= 804)
+    {
+        return "Overcast";
+    }
+
+    return "Cloudy";
+}
+
 drawing_weather_icon_t map_owm_condition_to_icon(int weather_id, const char *icon_code)
 {
     bool is_night = owm_icon_is_night(icon_code);
@@ -234,6 +284,7 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         float low_f;
         float wind_peak_mph;
         drawing_weather_icon_t icon;
+        char condition_short[20];
         int icon_score;
         forecast_hourly_payload_t hourly[APP_FORECAST_HOURLY_MAX];
         bool set;
@@ -307,6 +358,7 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
             days[idx].low_f = temp_f;
             days[idx].wind_peak_mph = has_wind_speed ? wind_speed_f : 0.0f;
             days[idx].icon = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
+            snprintf(days[idx].condition_short, sizeof(days[idx].condition_short), "Cloudy");
             days[idx].icon_set = false;
             days[idx].icon_score = -1;
             days[idx].hourly_count = 0;
@@ -350,6 +402,8 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         if (!days[idx].icon_set || icon_score > days[idx].icon_score)
         {
             days[idx].icon = mapped_icon;
+            snprintf(days[idx].condition_short, sizeof(days[idx].condition_short), "%s",
+                     forecast_condition_short(weather_id_value));
             days[idx].icon_set = true;
             days[idx].icon_score = icon_score;
         }
@@ -405,7 +459,8 @@ bool parse_forecast_json(const char *json_text, forecast_payload_t *out)
         row->icon = day->icon_set ? day->icon : DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
 
         snprintf(row->title, sizeof(row->title), "%s", weekday_name(day->wday));
-        snprintf(row->detail, sizeof(row->detail), "Low %d° Wind %d", low_i, wind_i);
+        snprintf(row->detail, sizeof(row->detail), "%s Low %d° Wind %d",
+                 day->condition_short, low_i, wind_i);
         snprintf(row->temp_text, sizeof(row->temp_text), "%d°", high_i);
 
         out->days[i].count = day->hourly_count;

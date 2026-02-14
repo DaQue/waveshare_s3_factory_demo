@@ -86,6 +86,14 @@ void app_render_if_dirty(void)
     data.forecast_title_text = g_app.forecast_title_text;
     data.forecast_body_text = g_app.forecast_body_text;
     data.forecast_preview_text = g_app.forecast_preview_text;
+    data.forecast_preview_count = g_app.forecast_preview_count;
+    for (int i = 0; i < APP_PREVIEW_DAYS; ++i)
+    {
+        data.forecast_preview_day[i] = g_app.forecast_preview_day[i];
+        data.forecast_preview_hi[i] = g_app.forecast_preview_hi[i];
+        data.forecast_preview_low[i] = g_app.forecast_preview_low[i];
+        data.forecast_preview_icon[i] = g_app.forecast_preview_icon[i];
+    }
     for (int i = 0; i < APP_FORECAST_ROWS; ++i)
     {
         data.forecast_row_title[i] = g_app.forecast_row_title[i];
@@ -263,6 +271,7 @@ void app_set_forecast_placeholders(void)
     snprintf(g_app.forecast_body_text, sizeof(g_app.forecast_body_text), "Daily highs/lows");
     snprintf(g_app.forecast_preview_text, sizeof(g_app.forecast_preview_text),
              "Tue --°   Wed --°   Thu --°");
+    g_app.forecast_preview_count = APP_PREVIEW_DAYS;
     g_app.forecast_row_count = APP_FORECAST_ROWS;
     g_app.forecast_hourly_open = false;
     g_app.forecast_hourly_day = 0;
@@ -281,6 +290,13 @@ void app_set_forecast_placeholders(void)
         g_app.forecast_hourly_detail[i][0] = '\0';
         snprintf(g_app.forecast_hourly_temp[i], sizeof(g_app.forecast_hourly_temp[i]), "--°");
         g_app.forecast_hourly_icon[i] = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
+    }
+    for (int i = 0; i < APP_PREVIEW_DAYS; ++i)
+    {
+        snprintf(g_app.forecast_preview_day[i], sizeof(g_app.forecast_preview_day[i]), "%s", default_titles[i]);
+        snprintf(g_app.forecast_preview_hi[i], sizeof(g_app.forecast_preview_hi[i]), "--°");
+        snprintf(g_app.forecast_preview_low[i], sizeof(g_app.forecast_preview_low[i]), "--°");
+        g_app.forecast_preview_icon[i] = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
     }
 }
 

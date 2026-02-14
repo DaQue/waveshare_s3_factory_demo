@@ -111,6 +111,10 @@ void apply_view_visibility(drawing_screen_view_t view)
     set_obj_hidden(now_stats_1_label, !now_visible);
     set_obj_hidden(now_stats_2_label, !now_visible);
     set_obj_hidden(now_stats_3_label, !now_visible);
+    for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
+    {
+        set_obj_hidden(now_preview_labels[i], !now_visible);
+    }
 
     for (int i = 0; i < FORECAST_ROWS; ++i)
     {

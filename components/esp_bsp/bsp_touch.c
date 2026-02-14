@@ -19,8 +19,10 @@ void bsp_touch_read(void)
 {
     uint8_t data[14] = {0}; /*1 Point:8;  2 Point: 14 */
     uint8_t read_cmd[11] = {0xb5, 0xab, 0xa5, 0x5a, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00};
+    g_touch_data.touch_num = 0;
+
     esp_err_t err = ESP_OK;
-    if (bsp_i2c_lock(0))
+    if (bsp_i2c_lock(10))
     {
         // i2c_master_transmit(dev_handle, read_cmd, 11, pdMS_TO_TICKS(1000));
         // i2c_master_receive(dev_handle, data, 14, pdMS_TO_TICKS(1000));
@@ -28,27 +30,35 @@ void bsp_touch_read(void)
         bsp_i2c_unlock();
         if (err != ESP_OK)
         {
-            g_touch_data.touch_num = 0;
             return;
         }
         // printf("Received: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
-        if (data[1] == 0 || data[2] == 0 || data[3] < 2 || data[5] < 2 ) {
-            g_touch_data.touch_num = 0;
-            return ;
-        }
-        
-        if (data[0] == 0xff || data[1] > 2)
+        if (data[0] == 0xff)
         {
-            g_touch_data.touch_num = 0;
             return;
         }
 
-        g_touch_data.touch_num = data[1];
-        for (int i = 0; i < g_touch_data.touch_num; i++)
+        uint8_t touch_count = data[1];
+        if (touch_count == 0 || touch_count > MAX_TOUCH_MAX_POINTS)
         {
-            g_touch_data.coords[i].x = ((data[6 * i + 2] & 0x0F) << 8) | data[6 * i + 3];
-            g_touch_data.coords[i].y = ((data[6 * i + 4] & 0x0F) << 8) | data[6 * i + 5];
+            return;
         }
+
+        uint8_t valid_count = 0;
+        for (int i = 0; i < touch_count; i++)
+        {
+            uint16_t x = (uint16_t)(((data[6 * i + 2] & 0x0F) << 8) | data[6 * i + 3]);
+            uint16_t y = (uint16_t)(((data[6 * i + 4] & 0x0F) << 8) | data[6 * i + 5]);
+            if (x >= g_width || y >= g_height)
+            {
+                continue;
+            }
+
+            g_touch_data.coords[valid_count].x = x;
+            g_touch_data.coords[valid_count].y = y;
+            valid_count++;
+        }
+        g_touch_data.touch_num = valid_count;
     }
 }
 
@@ -79,6 +89,7 @@ bool bsp_touch_get_coordinates(touch_data_t *touch_data)
             break;
         }
     }
+    touch_data->touch_num = g_touch_data.touch_num;
     return true;
 }
 
@@ -90,7 +101,7 @@ void bsp_touch_init(i2c_master_bus_handle_t bus_handle, uint16_t width, uint16_t
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = I2C_AXS15231B_ADDRESS,
-        .scl_speed_hz = 400000,
+        .scl_speed_hz = 100000,
         // .flags.disable_ack_check = true,
     };
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle));

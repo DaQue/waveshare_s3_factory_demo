@@ -28,6 +28,7 @@ extern lv_obj_t *now_weather_label;
 extern lv_obj_t *now_stats_1_label;
 extern lv_obj_t *now_stats_2_label;
 extern lv_obj_t *now_stats_3_label;
+extern lv_obj_t *now_preview_labels[DRAWING_SCREEN_PREVIEW_DAYS];
 
 extern lv_obj_t *forecast_row_title_labels[FORECAST_ROWS];
 extern lv_obj_t *forecast_row_detail_labels[FORECAST_ROWS];

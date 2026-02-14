@@ -10,6 +10,7 @@ extern lv_obj_t *canvas;
 extern bool canvas_exit;
 
 #define DRAWING_SCREEN_FORECAST_ROWS 4
+#define DRAWING_SCREEN_PREVIEW_DAYS 3
 
 typedef enum {
     DRAWING_SCREEN_VIEW_NOW = 0,
@@ -66,6 +67,11 @@ typedef struct {
     const char *forecast_title_text;
     const char *forecast_body_text;
     const char *forecast_preview_text;
+    uint8_t forecast_preview_count;
+    const char *forecast_preview_day[DRAWING_SCREEN_PREVIEW_DAYS];
+    const char *forecast_preview_hi[DRAWING_SCREEN_PREVIEW_DAYS];
+    const char *forecast_preview_low[DRAWING_SCREEN_PREVIEW_DAYS];
+    drawing_weather_icon_t forecast_preview_icon[DRAWING_SCREEN_PREVIEW_DAYS];
     const char *forecast_row_title[DRAWING_SCREEN_FORECAST_ROWS];
     const char *forecast_row_detail[DRAWING_SCREEN_FORECAST_ROWS];
     const char *forecast_row_temp[DRAWING_SCREEN_FORECAST_ROWS];

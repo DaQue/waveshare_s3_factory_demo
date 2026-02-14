@@ -23,7 +23,7 @@
 #define BME280_CHIP_ID 0x60
 #define BME280_RESET_CMD 0xB6
 #define BME280_I2C_LOCK_TIMEOUT_MS 100
-#define BME280_I2C_XFER_TIMEOUT_MS 60
+#define BME280_I2C_XFER_TIMEOUT_MS 30
 #define BME280_PROBE_RETRIES 3
 #define BME280_CHIP_ID_RETRIES 3
 
@@ -250,9 +250,11 @@ esp_err_t bsp_bme280_init(i2c_master_bus_handle_t bus_handle)
     for (size_t i = 0; i < sizeof(addresses); ++i)
     {
         uint8_t addr = addresses[i];
-        if (!bme280_probe_addr(bus_handle, addr))
+        bool probe_ok = bme280_probe_addr(bus_handle, addr);
+        if (!probe_ok)
         {
-            continue;
+            // Some shared-bus setups can fail probe but still respond to a normal register read.
+            ESP_LOGW(TAG, "probe miss @0x%02X, trying direct chip-id read", addr);
         }
 
         i2c_device_config_t dev_cfg = {

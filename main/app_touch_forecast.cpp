@@ -36,6 +36,49 @@ static bool app_is_hourly_close_tap(int16_t x, int16_t y)
     return x >= close_x_min;
 }
 
+static bool app_handle_edge_nav_tap(int16_t x, int16_t y)
+{
+    lv_disp_t *disp = lv_disp_get_default();
+    int screen_w = (disp != NULL) ? (int)lv_disp_get_hor_res(disp) : EXAMPLE_LCD_V_RES;
+    int screen_h = (disp != NULL) ? (int)lv_disp_get_ver_res(disp) : EXAMPLE_LCD_H_RES;
+    if (screen_w <= 0 || screen_h <= 0)
+    {
+        return false;
+    }
+
+    // Bottom edge tap fallback: left corner = previous page, right corner = next page.
+    if (y < screen_h - 60)
+    {
+        return false;
+    }
+
+    int step = 0;
+    if (x <= 60)
+    {
+        step = -1;
+    }
+    else if (x >= (screen_w - 60))
+    {
+        step = 1;
+    }
+    if (step == 0)
+    {
+        return false;
+    }
+
+    int view = (int)g_app.view + step;
+    if (view < (int)DRAWING_SCREEN_VIEW_NOW)
+    {
+        view = (int)DRAWING_SCREEN_VIEW_ABOUT;
+    }
+    else if (view > (int)DRAWING_SCREEN_VIEW_ABOUT)
+    {
+        view = (int)DRAWING_SCREEN_VIEW_NOW;
+    }
+    app_set_screen((drawing_screen_view_t)view);
+    return true;
+}
+
 void app_build_forecast_hourly_visible(void)
 {
     if (!g_app.forecast_hourly_open || g_app.forecast_hourly_day >= g_app.forecast_row_count)
@@ -150,7 +193,12 @@ void app_scroll_forecast_hourly(int dir)
 
 static void app_handle_touch_tap(int16_t x, int16_t y)
 {
-    (void)x;
+    if (app_handle_edge_nav_tap(x, y))
+    {
+        ESP_LOGI(APP_TAG, "touch: edge-nav tap x=%d y=%d -> view=%d", (int)x, (int)y, (int)g_app.view);
+        return;
+    }
+
     if (g_app.view != DRAWING_SCREEN_VIEW_FORECAST)
     {
         return;
@@ -161,6 +209,7 @@ static void app_handle_touch_tap(int16_t x, int16_t y)
         if (app_is_hourly_close_tap(x, y))
         {
             app_close_forecast_hourly();
+            ESP_LOGI(APP_TAG, "touch: close hourly tap x=%d y=%d", (int)x, (int)y);
         }
         return;
     }
@@ -171,6 +220,7 @@ static void app_handle_touch_tap(int16_t x, int16_t y)
         return;
     }
     app_open_forecast_hourly((uint8_t)row);
+    ESP_LOGI(APP_TAG, "touch: open hourly row=%d x=%d y=%d", row, (int)x, (int)y);
 }
 
 uint16_t display_rotation_to_touch_rotation(lv_disp_rot_t display_rotation)
@@ -225,6 +275,7 @@ void app_poll_touch_swipe(uint32_t now_ms)
 
     if (abs_delta_x <= TOUCH_TAP_MAX_MOVE_PX && abs_delta_y <= TOUCH_TAP_MAX_MOVE_PX)
     {
+        ESP_LOGI(APP_TAG, "touch: tap x=%d y=%d view=%d", (int)g_touch_swipe.last_x, (int)g_touch_swipe.last_y, (int)g_app.view);
         app_handle_touch_tap(g_touch_swipe.last_x, g_touch_swipe.last_y);
         return;
     }
@@ -241,8 +292,9 @@ void app_poll_touch_swipe(uint32_t now_ms)
             g_touch_swipe.last_swipe_ms = now_ms;
             // Swipe up shows later hours; swipe down shows earlier hours.
             app_scroll_forecast_hourly((delta_y < 0) ? 1 : -1);
+            ESP_LOGI(APP_TAG, "touch: hourly swipe dx=%d dy=%d", delta_x, delta_y);
+            return;
         }
-        return;
     }
 
     if (abs_delta_x < TOUCH_SWIPE_MIN_X_PX || abs_delta_y > TOUCH_SWIPE_MAX_Y_PX || abs_delta_y >= abs_delta_x)
@@ -264,6 +316,7 @@ void app_poll_touch_swipe(uint32_t now_ms)
         view = (int)DRAWING_SCREEN_VIEW_NOW;
     }
     app_set_screen((drawing_screen_view_t)view);
+    ESP_LOGI(APP_TAG, "touch: page swipe dx=%d dy=%d -> view=%d", delta_x, delta_y, view);
 }
 
 void app_apply_forecast_payload(const forecast_payload_t *fc)
@@ -279,6 +332,7 @@ void app_apply_forecast_payload(const forecast_payload_t *fc)
     snprintf(g_app.forecast_body_text, sizeof(g_app.forecast_body_text), "Daily highs/lows");
     snprintf(g_app.forecast_preview_text, sizeof(g_app.forecast_preview_text), "%s", fc->preview_text);
     g_app.forecast_row_count = (fc->row_count > APP_FORECAST_ROWS) ? APP_FORECAST_ROWS : fc->row_count;
+    g_app.forecast_preview_count = (g_app.forecast_row_count > APP_PREVIEW_DAYS) ? APP_PREVIEW_DAYS : g_app.forecast_row_count;
 
     for (int i = 0; i < APP_FORECAST_ROWS; ++i)
     {
@@ -286,6 +340,23 @@ void app_apply_forecast_payload(const forecast_payload_t *fc)
         snprintf(g_app.forecast_row_detail[i], sizeof(g_app.forecast_row_detail[i]), "%s", fc->rows[i].detail);
         snprintf(g_app.forecast_row_temp[i], sizeof(g_app.forecast_row_temp[i]), "%s", fc->rows[i].temp_text);
         g_app.forecast_row_icon[i] = fc->rows[i].icon;
+    }
+    for (int i = 0; i < APP_PREVIEW_DAYS; ++i)
+    {
+        if (i < g_app.forecast_preview_count)
+        {
+            snprintf(g_app.forecast_preview_day[i], sizeof(g_app.forecast_preview_day[i]), "%.7s", fc->rows[i].title);
+            snprintf(g_app.forecast_preview_hi[i], sizeof(g_app.forecast_preview_hi[i]), "%d°", fc->rows[i].temp_f);
+            snprintf(g_app.forecast_preview_low[i], sizeof(g_app.forecast_preview_low[i]), "%d°", fc->rows[i].feels_f);
+            g_app.forecast_preview_icon[i] = fc->rows[i].icon;
+        }
+        else
+        {
+            g_app.forecast_preview_day[i][0] = '\0';
+            snprintf(g_app.forecast_preview_hi[i], sizeof(g_app.forecast_preview_hi[i]), "--°");
+            snprintf(g_app.forecast_preview_low[i], sizeof(g_app.forecast_preview_low[i]), "--°");
+            g_app.forecast_preview_icon[i] = DRAWING_WEATHER_ICON_FEW_CLOUDS_DAY;
+        }
     }
 
     if (g_app.forecast_hourly_open)
