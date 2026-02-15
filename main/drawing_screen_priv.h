@@ -29,6 +29,9 @@ extern lv_obj_t *now_stats_1_label;
 extern lv_obj_t *now_stats_2_label;
 extern lv_obj_t *now_stats_3_label;
 extern lv_obj_t *now_preview_labels[DRAWING_SCREEN_PREVIEW_DAYS];
+extern lv_obj_t *indoor_temp_label;
+extern lv_obj_t *indoor_humidity_label;
+extern lv_obj_t *indoor_pressure_label;
 
 extern lv_obj_t *forecast_row_title_labels[FORECAST_ROWS];
 extern lv_obj_t *forecast_row_detail_labels[FORECAST_ROWS];
@@ -55,6 +58,7 @@ void build_feels_text(const char *stats_line_1, char *out, size_t out_size);
 void build_condition_text(const char *condition_text, char *out, size_t out_size);
 
 void draw_now_background(drawing_weather_icon_t now_icon);
+void draw_indoor_background(void);
 void draw_forecast_background(void);
 void draw_i2c_background(void);
 void draw_wifi_background(void);

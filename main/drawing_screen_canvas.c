@@ -209,18 +209,40 @@ void draw_now_background(drawing_weather_icon_t now_icon)
     lv_color_t line = lv_color_make(56, 63, 76);
     lv_color_t card_fill = lv_color_make(20, 25, 35);
     lv_color_t card_border = lv_color_make(63, 75, 95);
+    lv_color_t forecast_fill = lv_color_make(23, 29, 40);
+    lv_color_t forecast_border = lv_color_make(66, 86, 108);
 
     lv_canvas_fill_bg(canvas, bg, LV_OPA_COVER);
 
     fill_rect(0, 34, screen_w, 1, line);
     fill_rect(0, 44, screen_w, 1, lv_color_make(45, 52, 64));
 
-    canvas_draw_card(10, 52, screen_w - 20, 178, 14, card_fill, card_border, 2);
-    draw_icon_scaled(now_icon, 34, 74, 110, 110);
+    canvas_draw_card(10, 52, screen_w - 20, 164, 14, card_fill, card_border, 2);
+    draw_icon_scaled(now_icon, 30, 72, 118, 118);
 
-    fill_rect(0, 236, screen_w, 1, line);
-    fill_rect(screen_w / 2, 236, 1, screen_h - 236, line);
+    fill_rect(0, 224, screen_w, 1, line);
 
+    const int card_w = (screen_w - 40) / 3;
+    const int gap = 10;
+    for (int i = 0; i < 3; ++i)
+    {
+        int x = 10 + i * (card_w + gap);
+        canvas_draw_card(x, 232, card_w, 80, 12, forecast_fill, forecast_border, 2);
+    }
+
+    lv_obj_invalidate(canvas);
+}
+
+void draw_indoor_background(void)
+{
+    lv_color_t bg = lv_color_make(22, 28, 38);
+    lv_color_t line = lv_color_make(58, 70, 84);
+    lv_color_t card_fill = lv_color_make(20, 29, 40);
+    lv_color_t card_border = lv_color_make(66, 86, 108);
+
+    lv_canvas_fill_bg(canvas, bg, LV_OPA_COVER);
+    fill_rect(0, 34, screen_w, 1, line);
+    canvas_draw_card(10, 52, screen_w - 20, screen_h - 64, 16, card_fill, card_border, 2);
     lv_obj_invalidate(canvas);
 }
 

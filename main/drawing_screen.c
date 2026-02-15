@@ -33,6 +33,9 @@ lv_obj_t *now_stats_1_label = NULL;
 lv_obj_t *now_stats_2_label = NULL;
 lv_obj_t *now_stats_3_label = NULL;
 lv_obj_t *now_preview_labels[DRAWING_SCREEN_PREVIEW_DAYS] = {0};
+lv_obj_t *indoor_temp_label = NULL;
+lv_obj_t *indoor_humidity_label = NULL;
+lv_obj_t *indoor_pressure_label = NULL;
 
 lv_obj_t *forecast_row_title_labels[FORECAST_ROWS] = {0};
 lv_obj_t *forecast_row_detail_labels[FORECAST_ROWS] = {0};
@@ -180,11 +183,37 @@ void drawing_screen_init(void)
         if (now_preview_labels[i] == NULL)
         {
             now_preview_labels[i] = lv_label_create(screen);
-            lv_obj_set_style_text_font(now_preview_labels[i], &lv_font_montserrat_16, 0);
+            lv_obj_set_style_text_font(now_preview_labels[i], &lv_font_montserrat_20, 0);
             lv_obj_set_style_text_color(now_preview_labels[i], lv_color_make(214, 218, 226), 0);
+            lv_label_set_long_mode(now_preview_labels[i], LV_LABEL_LONG_CLIP);
+            lv_obj_set_width(now_preview_labels[i], 82);
         }
-        lv_obj_set_pos(now_preview_labels[i], 286, 246 + i * 24);
+        lv_obj_set_pos(now_preview_labels[i], 66 + i * 160, 244);
     }
+
+    if (indoor_temp_label == NULL)
+    {
+        indoor_temp_label = lv_label_create(screen);
+        lv_obj_set_style_text_font(indoor_temp_label, &lv_font_montserrat_48, 0);
+        lv_obj_set_style_text_color(indoor_temp_label, lv_color_make(232, 235, 240), 0);
+    }
+    lv_obj_set_pos(indoor_temp_label, 24, 76);
+
+    if (indoor_humidity_label == NULL)
+    {
+        indoor_humidity_label = lv_label_create(screen);
+        lv_obj_set_style_text_font(indoor_humidity_label, &lv_font_montserrat_48, 0);
+        lv_obj_set_style_text_color(indoor_humidity_label, lv_color_make(188, 196, 208), 0);
+    }
+    lv_obj_set_pos(indoor_humidity_label, 24, 154);
+
+    if (indoor_pressure_label == NULL)
+    {
+        indoor_pressure_label = lv_label_create(screen);
+        lv_obj_set_style_text_font(indoor_pressure_label, &lv_font_montserrat_48, 0);
+        lv_obj_set_style_text_color(indoor_pressure_label, lv_color_make(166, 208, 255), 0);
+    }
+    lv_obj_set_pos(indoor_pressure_label, 24, 232);
 
     for (int i = 0; i < FORECAST_ROWS; ++i)
     {
@@ -272,10 +301,13 @@ void drawing_screen_init(void)
     lv_label_set_text(now_stats_1_label, "Indoor --°F");
     lv_label_set_text(now_stats_2_label, "--% RH");
     lv_label_set_text(now_stats_3_label, "-- hPa");
-    lv_label_set_text(bottom_label, "3-Day Forecast");
+    lv_label_set_text(indoor_temp_label, "Indoor --.-°F");
+    lv_label_set_text(indoor_humidity_label, "--% RH");
+    lv_label_set_text(indoor_pressure_label, "-- hPa");
+    lv_label_set_text(bottom_label, "(swipe right for indoor, left for forecast)");
     for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
     {
-        lv_label_set_text(now_preview_labels[i], "Tue --°/--°");
+        lv_label_set_text(now_preview_labels[i], "Tue\n--°/--°");
     }
 
     for (int i = 0; i < FORECAST_ROWS; ++i)
@@ -330,6 +362,15 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             lv_obj_set_pos(header_time_label, 14, 4);
             lv_obj_align(header_title_label, LV_ALIGN_TOP_MID, 0, 4);
             lv_obj_align(status_label, LV_ALIGN_TOP_RIGHT, -10, 8);
+        }
+        else if (current_view == DRAWING_SCREEN_VIEW_INDOOR)
+        {
+            lv_label_set_text(header_time_label, "Indoor Sensor");
+            lv_label_set_text(header_title_label, "");
+            lv_label_set_text(status_label, "< Main  > Forecast");
+
+            lv_obj_set_pos(header_time_label, 14, 4);
+            lv_obj_align(status_label, LV_ALIGN_TOP_RIGHT, -12, 8);
         }
         else if (current_view == DRAWING_SCREEN_VIEW_FORECAST)
         {
@@ -390,42 +431,59 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
 
             draw_now_background(data->now_icon);
 
-            lv_obj_set_pos(now_temp_label, 174, 80);
-            lv_obj_set_pos(now_time_label, 338, 90);
-            lv_obj_set_pos(now_condition_label, 182, 145);
-            lv_obj_set_pos(now_weather_label, 172, 178);
-            lv_obj_set_pos(now_stats_1_label, 16, 246);
-            lv_obj_set_pos(now_stats_2_label, 16, 270);
-            lv_obj_set_pos(now_stats_3_label, 16, 292);
+            lv_obj_set_pos(now_temp_label, 168, 72);
+            lv_obj_set_pos(now_time_label, 336, 86);
+            lv_obj_set_pos(now_condition_label, 168, 132);
+            lv_obj_set_pos(now_weather_label, 168, 168);
 
             lv_label_set_text(now_temp_label, temp_compact);
             lv_label_set_text(now_time_label, text_or_fallback(data->now_time_text, "--:--"));
             lv_label_set_text(now_condition_label, feels_line);
             lv_label_set_text(now_weather_label, condition_line);
-            lv_label_set_text(now_stats_1_label, text_or_fallback(data->indoor_line_1, "Indoor --°F"));
-            lv_label_set_text(now_stats_2_label, text_or_fallback(data->indoor_line_2, "--% RH"));
-            lv_label_set_text(now_stats_3_label, text_or_fallback(data->indoor_line_3, "-- hPa"));
 
-            lv_obj_set_width(bottom_label, 210);
-            lv_obj_set_pos(bottom_label, 252, 224);
-            lv_label_set_text(bottom_label, "3-Day Forecast");
+            lv_obj_set_width(bottom_label, screen_w - 24);
+            lv_obj_set_pos(bottom_label, 12, screen_h - 22);
+            lv_label_set_text(bottom_label, "(swipe right indoor, left forecast)");
             for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
             {
                 char row_line[40] = {0};
                 const char *day = (data->forecast_preview_day[i] != NULL) ? data->forecast_preview_day[i] : "";
                 const char *hi = (data->forecast_preview_hi[i] != NULL) ? data->forecast_preview_hi[i] : "--°";
                 const char *low = (data->forecast_preview_low[i] != NULL) ? data->forecast_preview_low[i] : "--°";
+                int card_x = 10 + i * (((screen_w - 40) / 3) + 10);
                 if (i < data->forecast_preview_count && day[0] != '\0')
                 {
-                    snprintf(row_line, sizeof(row_line), "%s  %s/%s", day, hi, low);
-                    draw_icon_scaled(data->forecast_preview_icon[i], 252, 244 + i * 24, 20, 20);
+                    snprintf(row_line, sizeof(row_line), "%s\n%s/%s", day, hi, low);
+                    draw_icon_scaled(data->forecast_preview_icon[i], card_x + 10, 246, 44, 44);
                 }
                 else
                 {
-                    snprintf(row_line, sizeof(row_line), "--  --°/--°");
+                    snprintf(row_line, sizeof(row_line), "--\n--°/--°");
                 }
+                lv_obj_set_pos(now_preview_labels[i], card_x + 58, 244);
                 lv_label_set_text(now_preview_labels[i], row_line);
             }
+        }
+        else if (current_view == DRAWING_SCREEN_VIEW_INDOOR)
+        {
+            char indoor_temp[48] = {0};
+            const char *line1 = text_or_fallback(data->indoor_line_1, "Indoor --.-°F");
+            if (sscanf(line1, "Indoor %47[^\n]", indoor_temp) != 1)
+            {
+                snprintf(indoor_temp, sizeof(indoor_temp), "%s", line1);
+            }
+
+            draw_indoor_background();
+            lv_obj_set_pos(indoor_temp_label, 24, 76);
+            lv_obj_set_pos(indoor_humidity_label, 24, 154);
+            lv_obj_set_pos(indoor_pressure_label, 24, 232);
+            lv_label_set_text(indoor_temp_label, indoor_temp);
+            lv_label_set_text(indoor_humidity_label, text_or_fallback(data->indoor_line_2, "--% RH"));
+            lv_label_set_text(indoor_pressure_label, text_or_fallback(data->indoor_line_3, "-- hPa"));
+
+            lv_obj_set_width(bottom_label, screen_w - 24);
+            lv_obj_set_pos(bottom_label, 12, screen_h - 22);
+            lv_label_set_text(bottom_label, "(BME280 live data)");
         }
         else if (current_view == DRAWING_SCREEN_VIEW_FORECAST)
         {
@@ -510,9 +568,11 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
             char feels_line[32] = {0};
             build_feels_text(data->stats_line_1, feels_line, sizeof(feels_line));
             lv_label_set_text(now_condition_label, feels_line);
-            lv_label_set_text(now_stats_1_label, text_or_fallback(data->indoor_line_1, "Indoor --°F"));
-            lv_label_set_text(now_stats_2_label, text_or_fallback(data->indoor_line_2, "--% RH"));
-            lv_label_set_text(now_stats_3_label, text_or_fallback(data->indoor_line_3, "-- hPa"));
+        }
+        else if (current_view == DRAWING_SCREEN_VIEW_INDOOR)
+        {
+            lv_label_set_text(indoor_humidity_label, text_or_fallback(data->indoor_line_2, "--% RH"));
+            lv_label_set_text(indoor_pressure_label, text_or_fallback(data->indoor_line_3, "-- hPa"));
         }
     }
 

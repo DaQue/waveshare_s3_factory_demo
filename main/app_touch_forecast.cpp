@@ -66,16 +66,43 @@ static bool app_handle_edge_nav_tap(int16_t x, int16_t y)
         return false;
     }
 
-    int view = (int)g_app.view + step;
-    if (view < (int)DRAWING_SCREEN_VIEW_NOW)
-    {
-        view = (int)DRAWING_SCREEN_VIEW_ABOUT;
-    }
-    else if (view > (int)DRAWING_SCREEN_VIEW_ABOUT)
-    {
-        view = (int)DRAWING_SCREEN_VIEW_NOW;
-    }
-    app_set_screen((drawing_screen_view_t)view);
+    auto next_view = [](drawing_screen_view_t v) {
+        switch (v)
+        {
+        case DRAWING_SCREEN_VIEW_NOW:
+            return DRAWING_SCREEN_VIEW_FORECAST;
+        case DRAWING_SCREEN_VIEW_INDOOR:
+            return DRAWING_SCREEN_VIEW_NOW;
+        case DRAWING_SCREEN_VIEW_FORECAST:
+            return DRAWING_SCREEN_VIEW_I2C_SCAN;
+        case DRAWING_SCREEN_VIEW_I2C_SCAN:
+            return DRAWING_SCREEN_VIEW_WIFI_SCAN;
+        case DRAWING_SCREEN_VIEW_WIFI_SCAN:
+            return DRAWING_SCREEN_VIEW_ABOUT;
+        case DRAWING_SCREEN_VIEW_ABOUT:
+        default:
+            return DRAWING_SCREEN_VIEW_INDOOR;
+        }
+    };
+    auto prev_view = [](drawing_screen_view_t v) {
+        switch (v)
+        {
+        case DRAWING_SCREEN_VIEW_NOW:
+            return DRAWING_SCREEN_VIEW_INDOOR;
+        case DRAWING_SCREEN_VIEW_INDOOR:
+            return DRAWING_SCREEN_VIEW_ABOUT;
+        case DRAWING_SCREEN_VIEW_FORECAST:
+            return DRAWING_SCREEN_VIEW_NOW;
+        case DRAWING_SCREEN_VIEW_I2C_SCAN:
+            return DRAWING_SCREEN_VIEW_FORECAST;
+        case DRAWING_SCREEN_VIEW_WIFI_SCAN:
+            return DRAWING_SCREEN_VIEW_I2C_SCAN;
+        case DRAWING_SCREEN_VIEW_ABOUT:
+        default:
+            return DRAWING_SCREEN_VIEW_WIFI_SCAN;
+        }
+    };
+    app_set_screen((step > 0) ? next_view(g_app.view) : prev_view(g_app.view));
     return true;
 }
 
@@ -304,19 +331,46 @@ void app_poll_touch_swipe(uint32_t now_ms)
 
     g_touch_swipe.last_swipe_ms = now_ms;
 
-    // Left swipe => next page, right swipe => previous page.
-    int step = (delta_x < 0) ? 1 : -1;
-    int view = (int)g_app.view + step;
-    if (view < 0)
-    {
-        view = (int)DRAWING_SCREEN_VIEW_ABOUT;
-    }
-    else if (view > (int)DRAWING_SCREEN_VIEW_ABOUT)
-    {
-        view = (int)DRAWING_SCREEN_VIEW_NOW;
-    }
-    app_set_screen((drawing_screen_view_t)view);
-    ESP_LOGI(APP_TAG, "touch: page swipe dx=%d dy=%d -> view=%d", delta_x, delta_y, view);
+    auto next_view = [](drawing_screen_view_t v) {
+        switch (v)
+        {
+        case DRAWING_SCREEN_VIEW_NOW:
+            return DRAWING_SCREEN_VIEW_FORECAST;
+        case DRAWING_SCREEN_VIEW_INDOOR:
+            return DRAWING_SCREEN_VIEW_NOW;
+        case DRAWING_SCREEN_VIEW_FORECAST:
+            return DRAWING_SCREEN_VIEW_I2C_SCAN;
+        case DRAWING_SCREEN_VIEW_I2C_SCAN:
+            return DRAWING_SCREEN_VIEW_WIFI_SCAN;
+        case DRAWING_SCREEN_VIEW_WIFI_SCAN:
+            return DRAWING_SCREEN_VIEW_ABOUT;
+        case DRAWING_SCREEN_VIEW_ABOUT:
+        default:
+            return DRAWING_SCREEN_VIEW_INDOOR;
+        }
+    };
+    auto prev_view = [](drawing_screen_view_t v) {
+        switch (v)
+        {
+        case DRAWING_SCREEN_VIEW_NOW:
+            return DRAWING_SCREEN_VIEW_INDOOR;
+        case DRAWING_SCREEN_VIEW_INDOOR:
+            return DRAWING_SCREEN_VIEW_ABOUT;
+        case DRAWING_SCREEN_VIEW_FORECAST:
+            return DRAWING_SCREEN_VIEW_NOW;
+        case DRAWING_SCREEN_VIEW_I2C_SCAN:
+            return DRAWING_SCREEN_VIEW_FORECAST;
+        case DRAWING_SCREEN_VIEW_WIFI_SCAN:
+            return DRAWING_SCREEN_VIEW_I2C_SCAN;
+        case DRAWING_SCREEN_VIEW_ABOUT:
+        default:
+            return DRAWING_SCREEN_VIEW_WIFI_SCAN;
+        }
+    };
+
+    drawing_screen_view_t next = (delta_x < 0) ? next_view(g_app.view) : prev_view(g_app.view);
+    app_set_screen(next);
+    ESP_LOGI(APP_TAG, "touch: page swipe dx=%d dy=%d -> view=%d", delta_x, delta_y, (int)next);
 }
 
 void app_apply_forecast_payload(const forecast_payload_t *fc)

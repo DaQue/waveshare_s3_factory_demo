@@ -99,6 +99,7 @@ void build_condition_text(const char *condition_text, char *out, size_t out_size
 void apply_view_visibility(drawing_screen_view_t view)
 {
     bool now_visible = (view == DRAWING_SCREEN_VIEW_NOW);
+    bool indoor_visible = (view == DRAWING_SCREEN_VIEW_INDOOR);
     bool forecast_visible = (view == DRAWING_SCREEN_VIEW_FORECAST);
     bool i2c_visible = (view == DRAWING_SCREEN_VIEW_I2C_SCAN);
     bool wifi_visible = (view == DRAWING_SCREEN_VIEW_WIFI_SCAN);
@@ -108,13 +109,16 @@ void apply_view_visibility(drawing_screen_view_t view)
     set_obj_hidden(now_time_label, !now_visible);
     set_obj_hidden(now_condition_label, !now_visible);
     set_obj_hidden(now_weather_label, !now_visible);
-    set_obj_hidden(now_stats_1_label, !now_visible);
-    set_obj_hidden(now_stats_2_label, !now_visible);
-    set_obj_hidden(now_stats_3_label, !now_visible);
+    set_obj_hidden(now_stats_1_label, true);
+    set_obj_hidden(now_stats_2_label, true);
+    set_obj_hidden(now_stats_3_label, true);
     for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
     {
         set_obj_hidden(now_preview_labels[i], !now_visible);
     }
+    set_obj_hidden(indoor_temp_label, !indoor_visible);
+    set_obj_hidden(indoor_humidity_label, !indoor_visible);
+    set_obj_hidden(indoor_pressure_label, !indoor_visible);
 
     for (int i = 0; i < FORECAST_ROWS; ++i)
     {
