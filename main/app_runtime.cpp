@@ -245,6 +245,7 @@ void weather_task(void *arg)
     uint32_t next_indoor_sample_ms = 0;
     uint32_t next_i2c_scan_ms = 0;
     uint32_t next_wifi_scan_ms = 0;
+    uint32_t next_wifi_status_ms = 0;
 
     const char *wifi_ssid = app_config_wifi_ssid();
     const char *wifi_pass = app_config_wifi_pass();
@@ -261,6 +262,19 @@ void weather_task(void *arg)
         return;
     }
 
+    uint32_t now_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
+    next_weather_sync_ms = now_ms;
+    next_indoor_sample_ms = now_ms;
+    next_i2c_scan_ms = now_ms;
+    next_wifi_scan_ms = now_ms;
+    next_wifi_status_ms = now_ms;
+
+    bool wifi_ready = false;
+    bool wifi_timeout_logged = false;
+    bool ntp_checked = false;
+    uint32_t wifi_connect_started_ms = now_ms;
+    char wifi_ip[32] = {0};
+
     app_set_status_fmt("wifi: init");
     app_set_bottom_fmt("network bring-up");
     app_render_if_dirty();
@@ -268,45 +282,12 @@ void weather_task(void *arg)
     bsp_wifi_init(wifi_ssid, wifi_pass);
 
     app_set_status_fmt("wifi: connect -> %s", wifi_ssid);
+    app_set_bottom_fmt("network connect pending");
     app_render_if_dirty();
-
-    char ip[32] = {0};
-    if (!wait_for_wifi_ip(wifi_ssid, ip, sizeof(ip)))
-    {
-        app_set_status_fmt("wifi: timeout waiting for IP");
-        snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather skipped (no network)");
-        app_mark_dirty(false, true, false, false);
-        app_set_bottom_fmt("offline timeout");
-        app_render_if_dirty();
-        vTaskDelete(NULL);
-        return;
-    }
-
-    app_set_status_fmt("wifi: connected ip %s", ip);
-    app_set_bottom_fmt("online %s (%s)",
-                       WEATHER_QUERY_LOCAL,
-                       app_config_wifi_override_active() ? "saved Wi-Fi" : "default Wi-Fi");
-    app_render_if_dirty();
-
-    g_wifi_connected = true;
-    g_wifi_connected_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
-    app_update_connect_time(g_wifi_connected_ms);
-
-    bool ntp_synced = app_sync_time_with_ntp();
-    app_update_local_time();
-    app_set_bottom_fmt("%s | %s",
-                       ntp_synced ? "time: synced" : "time: pending",
-                       WEATHER_QUERY_LOCAL);
-    app_render_if_dirty();
-
-    next_weather_sync_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
-    next_indoor_sample_ms = next_weather_sync_ms;
-    next_i2c_scan_ms = next_weather_sync_ms;
-    next_wifi_scan_ms = next_weather_sync_ms;
 
     while (true)
     {
-        uint32_t now_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
+        now_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
         uint32_t now_sec = now_ms / 1000U;
 
         if (now_sec != last_time_sec)
@@ -314,6 +295,57 @@ void weather_task(void *arg)
             last_time_sec = now_sec;
             app_update_connect_time(now_ms);
             app_update_local_time();
+        }
+
+        if (!wifi_ready)
+        {
+            char ip[32] = {0};
+            bsp_wifi_get_ip(ip);
+            if (ip[0] != '\0' && strcmp(ip, "0.0.0.0") != 0)
+            {
+                snprintf(wifi_ip, sizeof(wifi_ip), "%s", ip);
+                wifi_ready = true;
+                g_wifi_connected = true;
+                g_wifi_connected_ms = now_ms;
+                app_update_connect_time(g_wifi_connected_ms);
+                app_set_status_fmt("wifi: connected ip %s", wifi_ip);
+                app_set_bottom_fmt("online %s (%s)",
+                                   WEATHER_QUERY_LOCAL,
+                                   app_config_wifi_override_active() ? "saved Wi-Fi" : "default Wi-Fi");
+                app_render_if_dirty();
+                next_weather_sync_ms = now_ms;
+            }
+            else
+            {
+                if (!wifi_timeout_logged &&
+                    (int32_t)(now_ms - (wifi_connect_started_ms + WIFI_WAIT_TIMEOUT_MS)) >= 0)
+                {
+                    wifi_timeout_logged = true;
+                    app_set_status_fmt("wifi: timeout waiting for IP");
+                    snprintf(g_app.weather_text, sizeof(g_app.weather_text), "weather delayed (no network)");
+                    app_mark_dirty(false, true, false, false);
+                    app_set_bottom_fmt("offline, retrying connect");
+                }
+
+                if ((int32_t)(now_ms - next_wifi_status_ms) >= 0)
+                {
+                    app_set_status_fmt("wifi: connecting... %d s",
+                                       (int)((now_ms - wifi_connect_started_ms) / 1000U));
+                    app_set_bottom_fmt("ssid: %s", (wifi_ssid != NULL && wifi_ssid[0] != '\0') ? wifi_ssid : "(unset)");
+                    next_wifi_status_ms = now_ms + 5000;
+                }
+            }
+        }
+
+        if (wifi_ready && !ntp_checked)
+        {
+            bool ntp_synced = app_sync_time_with_ntp();
+            ntp_checked = true;
+            app_update_local_time();
+            app_set_bottom_fmt("%s | %s",
+                               ntp_synced ? "time: synced" : "time: pending",
+                               WEATHER_QUERY_LOCAL);
+            app_render_if_dirty();
         }
 
         if ((int32_t)(now_ms - next_indoor_sample_ms) >= 0)
@@ -368,17 +400,24 @@ void weather_task(void *arg)
 
         if ((int32_t)(now_ms - next_weather_sync_ms) >= 0)
         {
-            char local_time[16] = {0};
-            if (!app_format_local_time(local_time, sizeof(local_time)))
+            if (!wifi_ready)
             {
-                app_set_status_fmt("time: waiting for NTP");
-                app_set_bottom_fmt("HTTPS blocked until clock sync");
-                next_weather_sync_ms = now_ms + 10000;
+                next_weather_sync_ms = now_ms + WEATHER_RETRY_MS;
             }
             else
             {
-                bool ok = weather_fetch_once();
-                next_weather_sync_ms = now_ms + (ok ? WEATHER_REFRESH_MS : WEATHER_RETRY_MS);
+                char local_time[16] = {0};
+                if (!app_format_local_time(local_time, sizeof(local_time)))
+                {
+                    app_set_status_fmt("time: waiting for NTP");
+                    app_set_bottom_fmt("HTTPS blocked until clock sync");
+                    next_weather_sync_ms = now_ms + 10000;
+                }
+                else
+                {
+                    bool ok = weather_fetch_once();
+                    next_weather_sync_ms = now_ms + (ok ? WEATHER_REFRESH_MS : WEATHER_RETRY_MS);
+                }
             }
         }
 
