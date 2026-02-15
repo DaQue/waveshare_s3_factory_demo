@@ -1,0 +1,19 @@
+#pragma once
+
+// Copy this file to `main/wifi_local.h` and fill in your local values.
+// `main/wifi_local.h` is gitignored and should not be committed.
+
+#define WIFI_SSID_LOCAL "YOUR_WIFI_SSID"
+#define WIFI_PASS_LOCAL "YOUR_WIFI_PASSWORD"
+
+// OpenWeather API key from https://openweathermap.org/api
+#define WEATHER_API_KEY_LOCAL "YOUR_OPENWEATHER_API_KEY"
+
+// Query formats supported by OpenWeather current/forecast endpoints, examples:
+// "zip=63301,US"
+// "q=Saint Charles,US"
+// "lat=38.7812&lon=-90.4810"
+#define WEATHER_QUERY_LOCAL "zip=63301,US"
+
+// POSIX TZ string for local clock display.
+#define LOCAL_TIMEZONE_TZ "CST6CDT,M3.2.0/2,M11.1.0/2"
