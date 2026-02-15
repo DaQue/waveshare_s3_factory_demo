@@ -443,7 +443,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
 
             lv_obj_set_width(bottom_label, screen_w - 24);
             lv_obj_set_pos(bottom_label, 12, screen_h - 22);
-            lv_label_set_text(bottom_label, "(swipe right indoor, left forecast)");
+            lv_label_set_text(bottom_label, "(swipe: right Indoor | left Forecast)");
             for (int i = 0; i < DRAWING_SCREEN_PREVIEW_DAYS; ++i)
             {
                 char row_line[40] = {0};

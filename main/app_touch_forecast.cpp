@@ -192,12 +192,12 @@ void app_scroll_forecast_hourly(int dir)
 
     uint8_t day = g_app.forecast_hourly_day;
     uint8_t count = g_forecast_cache.days[day].count;
-    if (count <= APP_FORECAST_ROWS)
+    int max_start = 0;
+    if (count > APP_FORECAST_ROWS)
     {
-        return;
+        max_start = (int)count - APP_FORECAST_ROWS;
     }
 
-    int max_start = (int)count - APP_FORECAST_ROWS;
     int next_offset = (int)g_app.forecast_hourly_offset + (dir * APP_FORECAST_ROWS);
     if (next_offset < 0)
     {
@@ -208,14 +208,55 @@ void app_scroll_forecast_hourly(int dir)
         next_offset = max_start;
     }
 
-    if (next_offset == (int)g_app.forecast_hourly_offset)
+    if (next_offset != (int)g_app.forecast_hourly_offset)
     {
+        g_app.forecast_hourly_offset = (uint8_t)next_offset;
+        app_build_forecast_hourly_visible();
+        app_mark_dirty(false, true, false, true);
         return;
     }
 
-    g_app.forecast_hourly_offset = (uint8_t)next_offset;
-    app_build_forecast_hourly_visible();
-    app_mark_dirty(false, true, false, true);
+    // At the day boundary: vertical swipe can move across days.
+    if (dir > 0)
+    {
+        for (int next_day = (int)day + 1; next_day < g_app.forecast_row_count; ++next_day)
+        {
+            if (g_forecast_cache.days[next_day].count == 0)
+            {
+                continue;
+            }
+            g_app.forecast_hourly_day = (uint8_t)next_day;
+            g_app.forecast_hourly_offset = 0;
+            app_build_forecast_hourly_visible();
+            app_mark_dirty(true, true, false, true);
+            return;
+        }
+        return;
+    }
+
+    for (int prev_day = (int)day - 1; prev_day >= 0; --prev_day)
+    {
+        uint8_t prev_count = g_forecast_cache.days[prev_day].count;
+        if (prev_count == 0)
+        {
+            continue;
+        }
+        g_app.forecast_hourly_day = (uint8_t)prev_day;
+        if (prev_count > APP_FORECAST_ROWS)
+        {
+            g_app.forecast_hourly_offset = (uint8_t)(prev_count - APP_FORECAST_ROWS);
+        }
+        else
+        {
+            g_app.forecast_hourly_offset = 0;
+        }
+        app_build_forecast_hourly_visible();
+        app_mark_dirty(true, true, false, true);
+        return;
+    }
+
+    // Swiping earlier from the first day exits hourly to the main forecast view.
+    app_close_forecast_hourly();
 }
 
 static void app_handle_touch_tap(int16_t x, int16_t y)
