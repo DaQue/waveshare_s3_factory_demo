@@ -66,6 +66,8 @@
 #define APP_WIFI_SCAN_VISIBLE_APS 8
 #define APP_WIFI_SSID_MAX_LEN 32
 #define APP_WIFI_PASS_MAX_LEN 64
+#define APP_WEATHER_API_KEY_MAX_LEN 96
+#define APP_WEATHER_QUERY_MAX_LEN 96
 
 #if __has_include("wifi_local.h")
 #include "wifi_local.h"
@@ -146,6 +148,10 @@ typedef struct {
     char wifi_ssid[APP_WIFI_SSID_MAX_LEN + 1];
     char wifi_pass[APP_WIFI_PASS_MAX_LEN + 1];
     bool wifi_override_active;
+    char weather_api_key[APP_WEATHER_API_KEY_MAX_LEN + 1];
+    char weather_query[APP_WEATHER_QUERY_MAX_LEN + 1];
+    bool weather_api_override_active;
+    bool weather_query_override_active;
 } app_wifi_config_t;
 
 typedef struct {
@@ -261,6 +267,13 @@ const char *app_config_wifi_pass(void);
 bool app_config_wifi_override_active(void);
 esp_err_t app_config_set_wifi_override(const char *ssid, const char *pass);
 esp_err_t app_config_clear_wifi_override(void);
+const char *app_config_weather_api_key(void);
+const char *app_config_weather_query(void);
+bool app_config_weather_api_override_active(void);
+bool app_config_weather_query_override_active(void);
+esp_err_t app_config_set_weather_api_key(const char *api_key);
+esp_err_t app_config_set_weather_query(const char *query);
+esp_err_t app_config_clear_weather_override(void);
 void app_config_boot_console_window(uint32_t timeout_ms);
 
 void io_expander_init(i2c_master_bus_handle_t bus_handle);

@@ -249,12 +249,16 @@ void weather_task(void *arg)
 
     const char *wifi_ssid = app_config_wifi_ssid();
     const char *wifi_pass = app_config_wifi_pass();
+    const char *weather_api_key = app_config_weather_api_key();
+    const char *weather_query = app_config_weather_query();
+    const char *weather_query_text = (weather_query != NULL && weather_query[0] != '\0') ? weather_query : "(query unset)";
 
-    if (wifi_ssid == NULL || wifi_pass == NULL || strlen(wifi_ssid) == 0 || strlen(WEATHER_API_KEY_LOCAL) == 0)
+    if (wifi_ssid == NULL || wifi_pass == NULL || weather_api_key == NULL ||
+        strlen(wifi_ssid) == 0 || strlen(weather_api_key) == 0)
     {
         app_set_status_fmt("config: missing Wi-Fi or API key");
         snprintf(g_app.weather_text, sizeof(g_app.weather_text),
-                 "set WEATHER_API_KEY_LOCAL and Wi-Fi credentials");
+                 "set Wi-Fi + API key (wifi/api console or wifi_local.h)");
         app_mark_dirty(false, true, false, false);
         app_set_bottom_fmt("offline config error");
         app_render_if_dirty();
@@ -310,7 +314,7 @@ void weather_task(void *arg)
                 app_update_connect_time(g_wifi_connected_ms);
                 app_set_status_fmt("wifi: connected ip %s", wifi_ip);
                 app_set_bottom_fmt("online %s (%s)",
-                                   WEATHER_QUERY_LOCAL,
+                                   weather_query_text,
                                    app_config_wifi_override_active() ? "saved Wi-Fi" : "default Wi-Fi");
                 app_render_if_dirty();
                 next_weather_sync_ms = now_ms;
@@ -344,7 +348,7 @@ void weather_task(void *arg)
             app_update_local_time();
             app_set_bottom_fmt("%s | %s",
                                ntp_synced ? "time: synced" : "time: pending",
-                               WEATHER_QUERY_LOCAL);
+                               weather_query_text);
             app_render_if_dirty();
         }
 

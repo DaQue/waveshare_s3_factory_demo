@@ -3,11 +3,22 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_app_desc.h"
 #include "esp_log.h"
 
 #ifndef PROJECT_VER
 #define PROJECT_VER "dev"
 #endif
+
+static const char *app_version_string(void)
+{
+    const esp_app_desc_t *desc = esp_app_get_description();
+    if (desc != NULL && desc->version[0] != '\0')
+    {
+        return desc->version;
+    }
+    return PROJECT_VER;
+}
 
 const char *DRAWING_TAG = "drawing_screen";
 
@@ -552,7 +563,7 @@ void drawing_screen_render(const drawing_screen_data_t *data, const drawing_scre
                      ABOUT_AUTHOR,
                      ABOUT_GITHUB,
                      ABOUT_GITHUB_HANDLE,
-                     PROJECT_VER);
+                     app_version_string());
             lv_label_set_text(i2c_scan_body_label, about_body);
 
             lv_obj_set_width(bottom_label, screen_w - 24);

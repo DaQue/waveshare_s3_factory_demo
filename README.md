@@ -65,9 +65,11 @@ cp main/wifi_local.h.example main/wifi_local.h
 
 `main/wifi_local.h` is intentionally gitignored and should never be committed.
 
-## Runtime Wi-Fi Override (Persistent)
-Default credentials are read from `main/wifi_local.h`.
-During the startup config window (about 8 seconds), use:
+## Runtime Wi-Fi/API Override (Persistent)
+Default credentials/config are read from `main/wifi_local.h`.
+Interactive serial commands are available during the boot config window
+(currently 8 seconds after startup). A help menu is printed when the window
+opens. Use:
 
 ```text
 wifi show
@@ -75,11 +77,27 @@ wifi set <ssid> <password>
 wifi set "My SSID" "My Password"
 wifi clear
 wifi reboot
+api show
+api set-key <openweather_api_key>
+api set-query <query_string>
+api set-query "zip=63301,US"
+api clear
+api reboot
 ```
 
 - `wifi set` and `wifi clear` update NVS.
-- `wifi reboot` applies saved credentials immediately.
-- If no saved override exists, firmware falls back to `wifi_local.h`.
+- `api set-key`, `api set-query`, and `api clear` update NVS.
+- `wifi reboot` or `api reboot` applies saved overrides immediately.
+- If the boot window is missed, reset the board and enter commands during the next boot window.
+- Override precedence:
+  - first: saved NVS override (from `wifi/api set...`)
+  - fallback: `main/wifi_local.h` defaults
+- NVS overrides persist across normal reflashes.
+- To return to header defaults, run `wifi clear` and/or `api clear` (or erase NVS).
+
+Known issue:
+- Serial config commands are currently unreliable on some setups (input may hang or fail to process).
+- Recommended path for now is `main/wifi_local.h` + USB flash updates.
 
 ## Touch And Sensor Troubleshooting
 - If flash works but monitor fails to open `/dev/ttyACM0`, close old monitor sessions first.

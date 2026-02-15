@@ -96,10 +96,19 @@ static esp_err_t http_get_text_once(esp_http_client_handle_t client, const char 
 
 bool weather_fetch_once(void)
 {
+    const char *weather_query = app_config_weather_query();
+    const char *weather_api_key = app_config_weather_api_key();
+    if (weather_query == NULL || weather_query[0] == '\0' || weather_api_key == NULL || weather_api_key[0] == '\0')
+    {
+        app_set_status_fmt("https: missing weather query or API key");
+        app_set_bottom_fmt("set API/query config");
+        return false;
+    }
+
     char weather_url[512] = {0};
     int weather_url_len = snprintf(weather_url, sizeof(weather_url),
                                    "https://api.openweathermap.org/data/2.5/weather?%s&units=imperial&appid=%s",
-                                   WEATHER_QUERY_LOCAL, WEATHER_API_KEY_LOCAL);
+                                   weather_query, weather_api_key);
     if (weather_url_len <= 0 || weather_url_len >= (int)sizeof(weather_url))
     {
         app_set_status_fmt("https: url build failed");
@@ -110,7 +119,7 @@ bool weather_fetch_once(void)
     char forecast_url[512] = {0};
     int forecast_url_len = snprintf(forecast_url, sizeof(forecast_url),
                                     "https://api.openweathermap.org/data/2.5/forecast?%s&units=imperial&appid=%s",
-                                    WEATHER_QUERY_LOCAL, WEATHER_API_KEY_LOCAL);
+                                    weather_query, weather_api_key);
     if (forecast_url_len <= 0 || forecast_url_len >= (int)sizeof(forecast_url))
     {
         app_set_status_fmt("https: forecast url build failed");
@@ -136,7 +145,7 @@ bool weather_fetch_once(void)
         }
     } client_guard = {client};
 
-    app_set_status_fmt("https: GET weather (%s)", WEATHER_QUERY_LOCAL);
+    app_set_status_fmt("https: GET weather (%s)", weather_query);
     app_set_bottom_fmt("fetching current conditions...");
     app_render_if_dirty();
 

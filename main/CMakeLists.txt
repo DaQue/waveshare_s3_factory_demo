@@ -17,6 +17,7 @@ idf_component_register(
         esp_lv_port
         esp-tls
         esp_http_client
+        esp_app_format
         json
         mbedtls
         espressif__esp_io_expander_tca9554
