@@ -20,7 +20,7 @@ Weather dashboard firmware for the Waveshare ESP32-S3 3.5" touch display, built 
 - OpenWeather HTTPS sync for current + forecast
 
 ## Version
-- Current release target: `0.8.0`
+- Current release target: `0.8.1`
 - Update is USB flash only (no OTA flow in this repo)
 
 ## Build
@@ -67,36 +67,37 @@ cp main/wifi_local.h.example main/wifi_local.h
 
 ## Runtime Wi-Fi/API Override (Persistent)
 Default credentials/config are read from `main/wifi_local.h`.
-Interactive serial commands are available during the boot config window
-(currently 8 seconds after startup). A help menu is printed when the window
-opens. Use:
+Interactive serial commands are available during the boot config window.
 
+**Console behavior:**
+- 15-second initial window after boot
+- Typing any key extends the timeout by 5 seconds (so you have unlimited time while actively typing)
+- Countdown shows at 10, 5, 3, 2, 1 seconds remaining
+- Characters echo as you type, backspace works
+- A `> ` prompt indicates the console is ready
+
+**Commands:**
 ```text
-wifi show
-wifi set <ssid> <password>
-wifi set "My SSID" "My Password"
-wifi clear
-wifi reboot
-api show
-api set-key <openweather_api_key>
-api set-query <query_string>
-api set-query "zip=63301,US"
-api clear
-api reboot
+wifi show                         # Show current Wi-Fi config
+wifi set <ssid> <password>        # Set Wi-Fi credentials
+wifi set "My SSID" "My Password"  # Quoted form for spaces
+wifi clear                        # Clear saved override
+wifi reboot                       # Reboot to apply changes
+
+api show                          # Show current API config
+api set-key <openweather_api_key> # Set API key
+api set-query <query_string>      # Set location query
+api set-query "zip=63301,US"      # Example query
+api clear                         # Clear API overrides
+api reboot                        # Reboot to apply changes
 ```
 
-- `wifi set` and `wifi clear` update NVS.
-- `api set-key`, `api set-query`, and `api clear` update NVS.
-- `wifi reboot` or `api reboot` applies saved overrides immediately.
-- If the boot window is missed, reset the board and enter commands during the next boot window.
-- Override precedence:
-  - first: saved NVS override (from `wifi/api set...`)
-  - fallback: `main/wifi_local.h` defaults
-- NVS overrides persist across normal reflashes.
-- To return to header defaults, run `wifi clear` and/or `api clear` (or erase NVS).
-
-Known issue:
-- Serial config commands are currently unreliable on some setups (input may hang or fail to process).
+**Notes:**
+- `wifi set` and `api set-*` commands save to NVS (persistent storage)
+- Changes require reboot to take effect (`wifi reboot` or `api reboot`)
+- Override precedence: NVS override > `main/wifi_local.h` defaults
+- NVS overrides persist across reflashes
+- To return to header defaults, run `wifi clear` and/or `api clear`
 - Recommended path for now is `main/wifi_local.h` + USB flash updates.
 
 ## Touch And Sensor Troubleshooting

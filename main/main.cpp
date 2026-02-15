@@ -64,7 +64,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(APP_TAG, "State-driven weather UI initialized");
 
-    app_config_boot_console_window(8000);
+    app_config_boot_console_window(15000);
     xTaskCreatePinnedToCore(weather_task, "weather_task", 1024 * 16, NULL, 3, NULL, 1);
 
     while (true)

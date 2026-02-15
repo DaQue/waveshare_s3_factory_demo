@@ -414,18 +414,16 @@ esp_err_t app_config_clear_weather_override(void)
 
 static void app_console_print_help(void)
 {
-    ESP_LOGI(APP_TAG, "console commands:");
-    ESP_LOGI(APP_TAG, "  wifi show");
-    ESP_LOGI(APP_TAG, "  wifi set <ssid> <password>");
-    ESP_LOGI(APP_TAG, "  wifi set \"My SSID\" \"My Password\"");
-    ESP_LOGI(APP_TAG, "  wifi clear");
-    ESP_LOGI(APP_TAG, "  wifi reboot");
-    ESP_LOGI(APP_TAG, "  api show");
-    ESP_LOGI(APP_TAG, "  api set-key <openweather_api_key>");
-    ESP_LOGI(APP_TAG, "  api set-query <query_string>");
-    ESP_LOGI(APP_TAG, "  api set-query \"q=Saint Charles,US\"");
-    ESP_LOGI(APP_TAG, "  api clear");
-    ESP_LOGI(APP_TAG, "  api reboot");
+    ESP_LOGI(APP_TAG, "commands:");
+    ESP_LOGI(APP_TAG, "  wifi show                  - show Wi-Fi config");
+    ESP_LOGI(APP_TAG, "  wifi set <ssid> <pass>     - set Wi-Fi credentials");
+    ESP_LOGI(APP_TAG, "  wifi clear                 - clear Wi-Fi override");
+    ESP_LOGI(APP_TAG, "  api show                   - show API config");
+    ESP_LOGI(APP_TAG, "  api set-key <key>          - set OpenWeather API key");
+    ESP_LOGI(APP_TAG, "  api set-query <query>      - set location query");
+    ESP_LOGI(APP_TAG, "  api clear                  - clear API overrides");
+    ESP_LOGI(APP_TAG, "  continue                   - exit config, boot normally");
+    ESP_LOGI(APP_TAG, "  wifi reboot / api reboot   - save and reboot");
 }
 
 static void app_console_handle_wifi(const char *args)
@@ -467,8 +465,8 @@ static void app_console_handle_wifi(const char *args)
             return;
         }
 
-        ESP_LOGI(APP_TAG, "config: saved Wi-Fi override for SSID '%s'", ssid);
-        ESP_LOGI(APP_TAG, "config: run 'wifi reboot' to apply now");
+        ESP_LOGI(APP_TAG, "saved: SSID='%s' pass=******** (%u chars)", ssid, (unsigned)strlen(pass));
+        ESP_LOGI(APP_TAG, "type 'wifi reboot' to apply, or 'wifi show' to verify");
         return;
     }
 
@@ -511,9 +509,8 @@ static void app_console_handle_api(const char *args)
         size_t key_len = strlen(app_config_weather_api_key());
         ESP_LOGI(APP_TAG, "api key source : %s",
                  app_config_weather_api_override_active() ? "NVS override" : "wifi_local.h defaults");
-        ESP_LOGI(APP_TAG, "api key value  : %s (%u chars)",
-                 key_len == 0 ? "<empty>" : "********",
-                 (unsigned)key_len);
+        ESP_LOGI(APP_TAG, "api key value  : %s",
+                 key_len == 0 ? "<empty>" : app_config_weather_api_key());
         ESP_LOGI(APP_TAG, "api query src  : %s",
                  app_config_weather_query_override_active() ? "NVS override" : "wifi_local.h defaults");
         ESP_LOGI(APP_TAG, "api query      : %s", app_config_weather_query());
@@ -534,8 +531,8 @@ static void app_console_handle_api(const char *args)
             ESP_LOGE(APP_TAG, "config: save API key failed: %s", esp_err_to_name(err));
             return;
         }
-        ESP_LOGI(APP_TAG, "config: saved API key override (%u chars)", (unsigned)strlen(key));
-        ESP_LOGI(APP_TAG, "config: run 'api reboot' (or 'wifi reboot') to apply now");
+        ESP_LOGI(APP_TAG, "saved: api key='%s'", key);
+        ESP_LOGI(APP_TAG, "type 'api reboot' to apply, or 'api show' to verify");
         return;
     }
 
@@ -554,8 +551,8 @@ static void app_console_handle_api(const char *args)
             ESP_LOGE(APP_TAG, "config: save API query failed: %s", esp_err_to_name(err));
             return;
         }
-        ESP_LOGI(APP_TAG, "config: saved API query override '%s'", query);
-        ESP_LOGI(APP_TAG, "config: run 'api reboot' (or 'wifi reboot') to apply now");
+        ESP_LOGI(APP_TAG, "saved: api query='%s'", query);
+        ESP_LOGI(APP_TAG, "type 'api reboot' to apply, or 'api show' to verify");
         return;
     }
 
@@ -583,41 +580,48 @@ static void app_console_handle_api(const char *args)
     app_console_print_help();
 }
 
-static void app_console_process_line(char *line)
+// Returns: 0 = empty/continue, 1 = valid command (enter interactive), -1 = exit requested
+static int app_console_process_line(char *line)
 {
     trim_line(line);
     const char *cursor = skip_ws(line);
     if (cursor == NULL || *cursor == '\0')
     {
-        return;
+        return 0;
     }
 
     char command[16] = {0};
     if (!parse_next_token(&cursor, command, sizeof(command)))
     {
-        return;
+        return 0;
+    }
+
+    // Exit commands
+    if (strcmp(command, "continue") == 0 || strcmp(command, "exit") == 0 || strcmp(command, "done") == 0)
+    {
+        return -1;
     }
 
     if (strcmp(command, "help") == 0 || strcmp(command, "?") == 0)
     {
         app_console_print_help();
-        return;
+        return 1;
     }
 
     if (strcmp(command, "wifi") == 0)
     {
         app_console_handle_wifi(cursor);
-        return;
+        return 1;
     }
 
     if (strcmp(command, "api") == 0)
     {
         app_console_handle_api(cursor);
-        return;
+        return 1;
     }
 
-    ESP_LOGW(APP_TAG, "console: unknown command '%s'", command);
-    app_console_print_help();
+    ESP_LOGW(APP_TAG, "console: unknown command '%s' (type 'help' or 'continue' to exit)", command);
+    return 1; // Stay in interactive mode on error too
 }
 
 void app_config_boot_console_window(uint32_t timeout_ms)
@@ -629,7 +633,7 @@ void app_config_boot_console_window(uint32_t timeout_ms)
 
     usb_serial_jtag_driver_config_t usb_cfg = {};
     usb_cfg.tx_buffer_size = 512;
-    usb_cfg.rx_buffer_size = 128;
+    usb_cfg.rx_buffer_size = 512;
     esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
     if (usb_err != ESP_OK && usb_err != ESP_ERR_INVALID_STATE)
     {
@@ -637,10 +641,15 @@ void app_config_boot_console_window(uint32_t timeout_ms)
         return;
     }
 
-    ESP_LOGI(APP_TAG, "console: %u s config window open (type 'help')", (unsigned)(timeout_ms / 1000U));
-    app_console_print_help();
+    ESP_LOGI(APP_TAG, "console: %u s to enter config mode, or type 'continue' to skip", (unsigned)(timeout_ms / 1000U));
 
-    uint32_t start_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
+    const char *prompt = "> ";
+    app_console_print_help();
+    usb_serial_jtag_write_bytes((const uint8_t *)prompt, strlen(prompt), pdMS_TO_TICKS(100));
+
+    uint32_t deadline_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS + timeout_ms;
+    uint32_t last_countdown_s = (timeout_ms / 1000U) + 1;
+    bool interactive_mode = false;
     char line[192] = {0};
     size_t line_len = 0;
     uint8_t buf[32] = {0};
@@ -648,9 +657,27 @@ void app_config_boot_console_window(uint32_t timeout_ms)
     while (true)
     {
         uint32_t now_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
-        if ((int32_t)(now_ms - start_ms) >= (int32_t)timeout_ms)
+
+        // Only timeout if not in interactive mode
+        if (!interactive_mode && (int32_t)(now_ms - deadline_ms) >= 0)
         {
             break;
+        }
+
+        // Show countdown only if not in interactive mode and not typing
+        if (!interactive_mode)
+        {
+            uint32_t remaining_s = (deadline_ms - now_ms) / 1000U;
+            if (remaining_s != last_countdown_s && line_len == 0)
+            {
+                if (remaining_s == 10 || remaining_s == 5 || remaining_s <= 3)
+                {
+                    char countdown[32];
+                    snprintf(countdown, sizeof(countdown), "\r[%u s] > ", (unsigned)remaining_s);
+                    usb_serial_jtag_write_bytes((const uint8_t *)countdown, strlen(countdown), pdMS_TO_TICKS(100));
+                }
+                last_countdown_s = remaining_s;
+            }
         }
 
         int read = usb_serial_jtag_read_bytes(buf, sizeof(buf), pdMS_TO_TICKS(100));
@@ -659,40 +686,80 @@ void app_config_boot_console_window(uint32_t timeout_ms)
             continue;
         }
 
+        // Any input extends the deadline (before entering interactive mode)
+        if (!interactive_mode)
+        {
+            deadline_ms = now_ms + 5000;
+            last_countdown_s = 6;
+        }
+
         for (int i = 0; i < read; ++i)
         {
             char c = (char)buf[i];
-            if (c == '\r')
+
+            // Treat CR or LF as command terminator (terminals vary)
+            if (c == '\r' || c == '\n')
             {
+                // Skip if line is empty (handles CR+LF sequences)
+                if (line_len == 0)
+                {
+                    continue;
+                }
+                // Echo newline
+                usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
+                line[line_len] = '\0';
+
+                int result = app_console_process_line(line);
+                line_len = 0;
+                line[0] = '\0';
+
+                if (result == -1)
+                {
+                    // Exit requested
+                    goto console_exit;
+                }
+                if (result == 1 && !interactive_mode)
+                {
+                    // First valid command - enter interactive mode
+                    interactive_mode = true;
+                    ESP_LOGI(APP_TAG, "console: interactive mode (type 'continue' to exit)");
+                }
+
+                // Print prompt for next command
+                usb_serial_jtag_write_bytes((const uint8_t *)prompt, strlen(prompt), pdMS_TO_TICKS(100));
                 continue;
             }
 
-            if (c == '\n')
+            // Handle backspace (ASCII 8 or DEL 127)
+            if (c == 8 || c == 127)
             {
-                line[line_len] = '\0';
-                app_console_process_line(line);
-                line_len = 0;
-                line[0] = '\0';
+                if (line_len > 0)
+                {
+                    --line_len;
+                    // Erase character on terminal: backspace, space, backspace
+                    usb_serial_jtag_write_bytes((const uint8_t *)"\b \b", 3, pdMS_TO_TICKS(100));
+                }
                 continue;
             }
 
             if (line_len + 1 < sizeof(line))
             {
                 line[line_len++] = c;
+                // Echo the character
+                usb_serial_jtag_write_bytes((const uint8_t *)&c, 1, pdMS_TO_TICKS(100));
             }
             else
             {
                 line_len = 0;
                 line[0] = '\0';
                 ESP_LOGW(APP_TAG, "console: input line too long, dropped");
+                usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
+                usb_serial_jtag_write_bytes((const uint8_t *)prompt, strlen(prompt), pdMS_TO_TICKS(100));
             }
         }
     }
 
-    esp_err_t uninstall_err = usb_serial_jtag_driver_uninstall();
-    if (uninstall_err != ESP_OK)
-    {
-        ESP_LOGW(APP_TAG, "console: usb serial driver uninstall failed: %s", esp_err_to_name(uninstall_err));
-    }
+console_exit:
+    usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
     ESP_LOGI(APP_TAG, "console: config window closed");
 }
