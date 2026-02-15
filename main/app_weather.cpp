@@ -105,11 +105,9 @@ drawing_weather_icon_t map_owm_condition_to_icon(int weather_id, const char *ico
     }
     if (weather_id >= 700 && weather_id < 800)
     {
-        if (weather_id == 741)
-        {
-            return DRAWING_WEATHER_ICON_FOG;
-        }
-        return DRAWING_WEATHER_ICON_MIST;
+        // Atmospheric conditions (mist/haze/smoke/dust, etc.) are often rendered
+        // as abstract line art. Use clouds for clearer at-a-glance UX.
+        return DRAWING_WEATHER_ICON_CLOUDS;
     }
     if (weather_id == 800)
     {
@@ -220,12 +218,19 @@ bool parse_weather_json(const char *json_text, weather_payload_t *out)
     out->wind_mph = wind_mph;
     out->humidity = json_read_int(humidity, -1);
     out->pressure_hpa = json_read_int(pressure, -1);
-    out->icon = map_owm_condition_to_icon(json_read_int(weather_id, 0),
-                                          json_read_string(icon, NULL));
+    int weather_id_value = json_read_int(weather_id, 0);
+    const char *icon_code = json_read_string(icon, NULL);
+    out->icon = map_owm_condition_to_icon(weather_id_value, icon_code);
 
     snprintf(out->city, sizeof(out->city), "%s", json_read_string(name, "?"));
     snprintf(out->country, sizeof(out->country), "%s", json_read_string(country, ""));
     snprintf(out->condition, sizeof(out->condition), "%s", json_read_string(desc, "(unknown)"));
+
+    ESP_LOGI(APP_TAG, "weather: id=%d icon=%s desc=%s mapped=%d",
+             weather_id_value,
+             (icon_code != NULL) ? icon_code : "?",
+             out->condition,
+             (int)out->icon);
 
     cJSON_Delete(root);
     return true;
