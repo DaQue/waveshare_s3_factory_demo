@@ -314,8 +314,11 @@ static esp_err_t panel_axs15231b_draw_bitmap(esp_lcd_panel_t *panel, int x_start
 
     // transfer frame buffer
     size_t len = (x_end - x_start) * (y_end - y_start) * axs15231b->fb_bits_per_pixel / 8;
-    // Use RAMWR for all writes; some panels appear to misbehave with RAMWRC.
-    tx_color(axs15231b, io, LCD_CMD_RAMWR, color_data, len);//2C
+    if (y_start == 0) {
+        tx_color(axs15231b, io, LCD_CMD_RAMWR, color_data, len);//2C
+    } else {
+        tx_color(axs15231b, io, LCD_CMD_RAMWRC, color_data, len);//3C
+    }
 
     return ESP_OK;
 }

@@ -7,8 +7,10 @@ LCD bring-up with a trial harness.
 Features
 --------
 - ESP-IDF + Rust std setup
-- USB-Serial-JTAG input for trial prompts
-- LCD trial harness (solid green, then box/X on success)
+- USB-Serial-JTAG input for mode selection and trial annotations
+- Auto sweep mode (unattended) and interactive sweep mode
+- NVS persistence of last trial marker, last mode, last result, and auto sweep count
+- Per-trial display reset/cleanup for repeatable bring-up checks
 
 Prereqs
 -------
@@ -29,12 +31,35 @@ source /home/david/export-esp.sh
 cargo +esp run -Zbuild-std=std,panic_abort
 ```
 
+If `sudo` is required for USB access, use the helper:
+```
+./scripts/flash.sh
+```
+
+To skip sudo (if you already have device permissions):
+```
+./scripts/flash.sh --no-sudo
+```
+
 Trial Flow
 ----------
-1) Open the monitor (via `cargo +esp run ...`).
-2) The firmware cycles through LCD init trials and draws solid green.
-3) Enter result: `p` / `b` / `n1` / `n2` when prompted.
-4) If `p`, it draws a blue box with a yellow X and asks again.
+1) Open the monitor (via `cargo +esp run ...` or `./scripts/flash.sh`).
+2) At boot, the firmware prompts and waits until you enter a valid mode:
+   - `a` (default): auto mode, resume from saved trial
+   - `a1`: auto mode from trial #1
+   - `i`: interactive mode, resume from saved trial
+   - `i1`: interactive mode from trial #1
+   - `i <n>`: interactive mode from trial `n`
+3) Each trial shows solid green, then a blue box with a yellow X.
+4) In interactive mode, enter result codes:
+   - `p`, `px`, `pxb`, `gx`, `gxb`, `pbn`, `vjg`, `vjb`, `hjgb`, `hjbb`, `n`, `b`
+5) In interactive mode, control commands:
+   - `r` rerun current trial
+   - `jmp <n>` jump to trial `n`
+   - `nvs` print persisted marker/state
+   - `q` quit interactive mode
+   - `h` show help
+6) The harness prints progress with base trial number as `#/N` and resets/cleans up between trials.
 
 Notes
 -----

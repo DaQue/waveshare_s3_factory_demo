@@ -6,14 +6,21 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 log = "0.4"
-env_logger = "0.11"
 
 esp-idf-sys = { version = "0.36", features = ["binstart"] }
 esp-idf-svc = "0.51"
-embedded-hal = "1"
-embedded-svc = "0.28.1"
+esp-idf-hal = "0.45"
 
-bme280 = "0.5"
+embedded-graphics = "0.8"
+profont = "0.7"
+tinybmp = "0.6"
+
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+libc = "0.2"
+heapless = "0.8"
+embedded-svc = "0.28"
 
 [build-dependencies]
 embuild = { version = "0.32", features = ["espidf"] }
@@ -27,4 +34,4 @@ panic = "abort"
 [package.metadata.esp-idf-sys]
 
 [[package.metadata.esp-idf-sys.extra_components]]
-remote_component = { name = "espressif/esp_lcd_axs15231b", version = "1.0.0" }
+component_dirs = ["components"]
