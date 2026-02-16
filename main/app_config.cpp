@@ -506,11 +506,22 @@ static void app_console_handle_api(const char *args)
 
     if (strcmp(subcmd, "show") == 0)
     {
-        size_t key_len = strlen(app_config_weather_api_key());
+        const char *key = app_config_weather_api_key();
+        size_t key_len = strlen(key);
         ESP_LOGI(APP_TAG, "api key source : %s",
                  app_config_weather_api_override_active() ? "NVS override" : "wifi_local.h defaults");
-        ESP_LOGI(APP_TAG, "api key value  : %s",
-                 key_len == 0 ? "<empty>" : app_config_weather_api_key());
+        if (key_len == 0)
+        {
+            ESP_LOGI(APP_TAG, "api key value  : <empty>");
+        }
+        else if (key_len <= 4)
+        {
+            ESP_LOGI(APP_TAG, "api key value  : %s (%u chars)", key, (unsigned)key_len);
+        }
+        else
+        {
+            ESP_LOGI(APP_TAG, "api key value  : ****%s (%u chars)", key + key_len - 4, (unsigned)key_len);
+        }
         ESP_LOGI(APP_TAG, "api query src  : %s",
                  app_config_weather_query_override_active() ? "NVS override" : "wifi_local.h defaults");
         ESP_LOGI(APP_TAG, "api query      : %s", app_config_weather_query());
@@ -531,7 +542,15 @@ static void app_console_handle_api(const char *args)
             ESP_LOGE(APP_TAG, "config: save API key failed: %s", esp_err_to_name(err));
             return;
         }
-        ESP_LOGI(APP_TAG, "saved: api key='%s'", key);
+        size_t key_len = strlen(key);
+        if (key_len <= 4)
+        {
+            ESP_LOGI(APP_TAG, "saved: api key='%s' (%u chars)", key, (unsigned)key_len);
+        }
+        else
+        {
+            ESP_LOGI(APP_TAG, "saved: api key='****%s' (%u chars)", key + key_len - 4, (unsigned)key_len);
+        }
         ESP_LOGI(APP_TAG, "type 'api reboot' to apply, or 'api show' to verify");
         return;
     }
@@ -766,6 +785,8 @@ console_exit:
 
 void app_config_interactive_console(void)
 {
+    g_console_active = true;
+
     usb_serial_jtag_driver_config_t usb_cfg = {};
     usb_cfg.tx_buffer_size = 512;
     usb_cfg.rx_buffer_size = 512;
@@ -773,6 +794,7 @@ void app_config_interactive_console(void)
     if (usb_err != ESP_OK && usb_err != ESP_ERR_INVALID_STATE)
     {
         ESP_LOGW(APP_TAG, "console: usb serial driver install failed: %s", esp_err_to_name(usb_err));
+        g_console_active = false;
         return;
     }
 
@@ -815,6 +837,7 @@ void app_config_interactive_console(void)
                 {
                     usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
                     ESP_LOGI(APP_TAG, "console: exiting config mode");
+                    g_console_active = false;
                     return;
                 }
 

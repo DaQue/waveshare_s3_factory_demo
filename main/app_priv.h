@@ -222,6 +222,7 @@ extern touch_swipe_state_t g_touch_swipe;
 extern app_wifi_config_t g_wifi_config;
 extern bool g_wifi_connected;
 extern uint32_t g_wifi_connected_ms;
+extern volatile bool g_console_active;
 
 extern const char *WEEKDAY_SHORT[7];
 

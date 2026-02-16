@@ -291,6 +291,13 @@ void weather_task(void *arg)
 
     while (true)
     {
+        // Pause updates while console is active to avoid race conditions
+        if (g_console_active)
+        {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+
         now_ms = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
         uint32_t now_sec = now_ms / 1000U;
 

@@ -100,6 +100,12 @@ wifi reboot / api reboot   # Save and reboot immediately
 - Override precedence: NVS override > `main/wifi_local.h` defaults
 - NVS overrides persist across reflashes
 
+**String length limits:**
+- Wi-Fi SSID: 32 characters max
+- Wi-Fi password: 64 characters max
+- API key: 96 characters max
+- API query: 96 characters max
+
 ## Touch And Sensor Troubleshooting
 - If flash works but monitor fails to open `/dev/ttyACM0`, close old monitor sessions first.
 - If touch gestures stop working, verify touch fallback taps still navigate:

@@ -14,6 +14,7 @@ touch_swipe_state_t g_touch_swipe = {};
 app_wifi_config_t g_wifi_config = {};
 bool g_wifi_connected = false;
 uint32_t g_wifi_connected_ms = 0;
+volatile bool g_console_active = false;
 
 const char *WEEKDAY_SHORT[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
@@ -190,7 +191,17 @@ void app_update_connect_time(uint32_t now_ms)
     uint32_t elapsed_sec = 0;
     if (g_wifi_connected)
     {
-        elapsed_sec = (now_ms - g_wifi_connected_ms) / 1000U;
+        // Handle timer wraparound (~49 days) - if delta looks too big, use modular arithmetic
+        uint32_t delta_ms = now_ms - g_wifi_connected_ms;
+        // Sanity check: if delta > 49 days worth of ms, timer wrapped - just show 0
+        if (delta_ms > 0xF0000000U)
+        {
+            elapsed_sec = 0;
+        }
+        else
+        {
+            elapsed_sec = delta_ms / 1000U;
+        }
     }
 
     uint32_t hours = (elapsed_sec / 3600U) % 100U;
@@ -217,6 +228,8 @@ bool app_sync_time_with_ntp(void)
     {
         esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
         esp_sntp_setservername(0, "pool.ntp.org");
+        esp_sntp_setservername(1, "time.google.com");
+        esp_sntp_setservername(2, "time.cloudflare.com");
         esp_sntp_init();
     }
     else
