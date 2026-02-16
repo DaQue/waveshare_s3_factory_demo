@@ -275,6 +275,7 @@ esp_err_t app_config_set_weather_api_key(const char *api_key);
 esp_err_t app_config_set_weather_query(const char *query);
 esp_err_t app_config_clear_weather_override(void);
 void app_config_boot_console_window(uint32_t timeout_ms);
+void app_config_interactive_console(void);
 
 void io_expander_init(i2c_master_bus_handle_t bus_handle);
 void lv_port_init_local(void);

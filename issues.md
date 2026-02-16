@@ -1,11 +1,12 @@
 # Project Status And Known Issues
 
-## Current Version: 0.8.1
+## Current Version: 0.10.0
 
-### Changes in 0.8.1
-- Serial console completely overhauled for reliability
-- Interactive mode: any valid command keeps console open until you type `continue`
-- 15-second initial window with countdown (10, 5, 3, 2, 1)
+### Changes in 0.10.0
+- **BOOT button trigger for config mode** - press anytime
+  - No boot delay - just press BOOT button whenever you need config
+  - Button checked 5 times per second during normal operation
+- Interactive mode stays open until you type `continue`
 - Character echo, backspace support, `> ` prompt
 - CR and LF both work as Enter (fixes ESP-IDF monitor compatibility)
 - API key now visible in `api show` output for verification
@@ -16,25 +17,23 @@
 - About screen version fix (uses runtime app metadata)
 - Local API config template added
 
-## Serial Console Usage
+## Config Mode
 
-The serial console is now reliable and stays open as long as you need:
-
-1. Boot the device, watch for `> ` prompt
-2. Type any command (e.g., `wifi show`) to enter interactive mode
-3. Configure as needed - no timeout while in interactive mode
-4. Type `continue` to exit and boot normally, or `wifi reboot` to apply changes
+**To enter config mode:**
+1. Press the BOOT button anytime during normal operation
+2. Console shows "BOOT button pressed - entering config mode"
+3. Type commands, then `continue` to resume or `wifi reboot` to apply
 
 **Commands:**
 - `wifi show` / `wifi set <ssid> <pass>` / `wifi clear`
 - `api show` / `api set-key <key>` / `api set-query <query>` / `api clear`
-- `continue` / `exit` / `done` - exit console and boot
-- `wifi reboot` / `api reboot` - save and reboot immediately
+- `continue` / `exit` / `done` - exit config and boot
+- `wifi reboot` / `api reboot` - save and reboot
 
 ## Setup Paths
 
-**Option 1: Serial console (recommended)**
-- Boot and use interactive console as above
+**Option 1: BOOT button config (recommended)**
+- Press BOOT button anytime, set credentials interactively
 
 **Option 2: File-based config**
 - Set credentials in `main/wifi_local.h`

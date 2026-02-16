@@ -1,4 +1,23 @@
 #include "app_priv.h"
+#include "driver/gpio.h"
+
+// BOOT button on GPIO0 - LOW when pressed
+#define BOOT_BUTTON_GPIO GPIO_NUM_0
+
+static void init_boot_button(void)
+{
+    gpio_config_t io_conf = {};
+    io_conf.pin_bit_mask = (1ULL << BOOT_BUTTON_GPIO);
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    gpio_config(&io_conf);
+}
+
+static bool is_boot_button_pressed(void)
+{
+    return gpio_get_level(BOOT_BUTTON_GPIO) == 0;
+}
 
 extern "C" void app_main(void)
 {
@@ -64,11 +83,20 @@ extern "C" void app_main(void)
 
     ESP_LOGI(APP_TAG, "State-driven weather UI initialized");
 
-    app_config_boot_console_window(15000);
+    init_boot_button();
     xTaskCreatePinnedToCore(weather_task, "weather_task", 1024 * 16, NULL, 3, NULL, 1);
+
+    ESP_LOGI(APP_TAG, "Press BOOT button anytime for config mode");
 
     while (true)
     {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // Check BOOT button - enter config mode if pressed
+        if (is_boot_button_pressed())
+        {
+            ESP_LOGI(APP_TAG, "BOOT button pressed - entering config mode");
+            app_config_interactive_console();
+            ESP_LOGI(APP_TAG, "Exited config mode - resuming normal operation");
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));  // Check 5 times per second
     }
 }

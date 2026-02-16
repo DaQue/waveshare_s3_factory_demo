@@ -763,3 +763,88 @@ console_exit:
     usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
     ESP_LOGI(APP_TAG, "console: config window closed");
 }
+
+void app_config_interactive_console(void)
+{
+    usb_serial_jtag_driver_config_t usb_cfg = {};
+    usb_cfg.tx_buffer_size = 512;
+    usb_cfg.rx_buffer_size = 512;
+    esp_err_t usb_err = usb_serial_jtag_driver_install(&usb_cfg);
+    if (usb_err != ESP_OK && usb_err != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGW(APP_TAG, "console: usb serial driver install failed: %s", esp_err_to_name(usb_err));
+        return;
+    }
+
+    ESP_LOGI(APP_TAG, "console: interactive mode (type 'continue' to exit)");
+
+    const char *prompt = "> ";
+    app_console_print_help();
+    usb_serial_jtag_write_bytes((const uint8_t *)prompt, strlen(prompt), pdMS_TO_TICKS(100));
+
+    char line[192] = {0};
+    size_t line_len = 0;
+    uint8_t buf[32] = {0};
+
+    while (true)
+    {
+        int read = usb_serial_jtag_read_bytes(buf, sizeof(buf), pdMS_TO_TICKS(100));
+        if (read <= 0)
+        {
+            continue;
+        }
+
+        for (int i = 0; i < read; ++i)
+        {
+            char c = (char)buf[i];
+
+            if (c == '\r' || c == '\n')
+            {
+                if (line_len == 0)
+                {
+                    continue;
+                }
+                usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
+                line[line_len] = '\0';
+
+                int result = app_console_process_line(line);
+                line_len = 0;
+                line[0] = '\0';
+
+                if (result == -1)
+                {
+                    usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
+                    ESP_LOGI(APP_TAG, "console: exiting config mode");
+                    return;
+                }
+
+                usb_serial_jtag_write_bytes((const uint8_t *)prompt, strlen(prompt), pdMS_TO_TICKS(100));
+                continue;
+            }
+
+            if (c == 8 || c == 127)
+            {
+                if (line_len > 0)
+                {
+                    --line_len;
+                    usb_serial_jtag_write_bytes((const uint8_t *)"\b \b", 3, pdMS_TO_TICKS(100));
+                }
+                continue;
+            }
+
+            if (line_len + 1 < sizeof(line))
+            {
+                line[line_len++] = c;
+                usb_serial_jtag_write_bytes((const uint8_t *)&c, 1, pdMS_TO_TICKS(100));
+            }
+            else
+            {
+                line_len = 0;
+                line[0] = '\0';
+                ESP_LOGW(APP_TAG, "console: input line too long, dropped");
+                usb_serial_jtag_write_bytes((const uint8_t *)"\r\n", 2, pdMS_TO_TICKS(100));
+                usb_serial_jtag_write_bytes((const uint8_t *)prompt, strlen(prompt), pdMS_TO_TICKS(100));
+            }
+        }
+    }
+}
