@@ -516,6 +516,10 @@ fn main() -> Result<()> {
     let mut last_bme_ms: u32 = 0;
     let mut tick_count: u32 = 0;
 
+    // Clear display on boot (avoid showing stale framebuffer)
+    fb.clear_color(embedded_graphics::pixelcolor::Rgb565::new(0, 0, 0));
+    fb.flush_to_panel(ctx.io, ctx.panel);
+
     // Initial draw
     views::draw_current_view(&mut fb, &state);
     fb.flush_to_panel(ctx.io, ctx.panel);

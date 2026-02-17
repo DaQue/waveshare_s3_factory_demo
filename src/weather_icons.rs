@@ -1,7 +1,18 @@
-use embedded_graphics::{image::Image, pixelcolor::Rgb565, prelude::*};
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 use tinybmp::Bmp;
 
 use crate::framebuffer::Framebuffer;
+
+/// Icon background color in RGB565 (matches gen_icons.py BG = 0x14,0x19,0x23)
+const ICON_BG: Rgb565 = Rgb565::new(0x14 >> 3, 0x19 >> 2, 0x23 >> 3);
+
+/// Draw a BMP treating ICON_BG pixels as transparent.
+fn draw_bmp_transparent(fb: &mut Framebuffer, bmp: &Bmp<Rgb565>, x: i32, y: i32) {
+    let pixels = bmp.pixels()
+        .filter(|p| p.1 != ICON_BG)
+        .map(|p| Pixel(Point::new(x + p.0.x, y + p.0.y), p.1));
+    fb.draw_iter(pixels).ok();
+}
 
 /// Weather icon identifiers mapped to OpenWeatherMap condition codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -111,17 +122,17 @@ impl WeatherIcon {
         }
     }
 
-    /// Draw the 80x80 icon at the given position.
+    /// Draw the 80x80 icon at the given position, treating BG color as transparent.
     pub fn draw_80(self, fb: &mut Framebuffer, x: i32, y: i32) {
         if let Ok(bmp) = Bmp::<Rgb565>::from_slice(self.bmp_data_80()) {
-            Image::new(&bmp, Point::new(x, y)).draw(fb).ok();
+            draw_bmp_transparent(fb, &bmp, x, y);
         }
     }
 
-    /// Draw the 36x36 icon at the given position.
+    /// Draw the 36x36 icon at the given position, treating BG color as transparent.
     pub fn draw_36(self, fb: &mut Framebuffer, x: i32, y: i32) {
         if let Ok(bmp) = Bmp::<Rgb565>::from_slice(self.bmp_data_36()) {
-            Image::new(&bmp, Point::new(x, y)).draw(fb).ok();
+            draw_bmp_transparent(fb, &bmp, x, y);
         }
     }
 }

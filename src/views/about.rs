@@ -74,6 +74,15 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         .draw(fb)
         .ok();
 
+    // Author
+    let small_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_DETAIL);
+    Text::new("By David + Claude Code", Point::new(24, 200), small_style)
+        .draw(fb)
+        .ok();
+    Text::new("github.com/david", Point::new(24, 216), small_style)
+        .draw(fb)
+        .ok();
+
     // Bottom text
     let bottom_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
     Text::new(&state.bottom_text, Point::new(BOTTOM_X, BOTTOM_Y), bottom_style)
