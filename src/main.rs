@@ -361,32 +361,32 @@ fn draw_splash(fb: &mut framebuffer::Framebuffer, status: &str) {
         prelude::*,
         text::{Alignment, Text},
     };
-    use profont::{PROFONT_18_POINT, PROFONT_12_POINT};
+    use profont::{PROFONT_24_POINT, PROFONT_18_POINT, PROFONT_14_POINT};
 
     let bg = layout::rgb(20, 24, 32);
     fb.clear_color(bg);
 
-    let title_style = MonoTextStyle::new(&PROFONT_18_POINT, Rgb565::new(28, 56, 31));
+    let title_style = MonoTextStyle::new(&PROFONT_24_POINT, Rgb565::new(28, 56, 31));
     Text::with_alignment(
         "Weather Station",
-        Point::new(240, 120),
+        Point::new(240, 110),
         title_style,
         Alignment::Center,
     )
     .draw(fb)
     .ok();
 
-    let sub_style = MonoTextStyle::new(&PROFONT_12_POINT, Rgb565::new(18, 36, 20));
+    let sub_style = MonoTextStyle::new(&PROFONT_18_POINT, Rgb565::new(18, 36, 20));
     Text::with_alignment(
         "Waveshare ESP32-S3 3.5B",
-        Point::new(240, 148),
+        Point::new(240, 145),
         sub_style,
         Alignment::Center,
     )
     .draw(fb)
     .ok();
 
-    let status_style = MonoTextStyle::new(&PROFONT_12_POINT, Rgb565::new(12, 28, 14));
+    let status_style = MonoTextStyle::new(&PROFONT_14_POINT, Rgb565::new(12, 28, 14));
     Text::with_alignment(
         status,
         Point::new(240, 200),
