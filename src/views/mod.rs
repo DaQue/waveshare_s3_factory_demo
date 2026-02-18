@@ -60,6 +60,8 @@ pub struct AppState {
     pub forecast_hourly_open: bool,
     pub forecast_hourly_day: usize,
     pub forecast_hourly_scroll: usize,
+    pub use_celsius: bool,
+    pub force_weather_refresh: bool,
     pub dirty: bool,
 }
 
@@ -81,6 +83,8 @@ impl AppState {
             forecast_hourly_open: false,
             forecast_hourly_day: 0,
             forecast_hourly_scroll: 0,
+            use_celsius: false,
+            force_weather_refresh: false,
             dirty: true,
         }
     }
@@ -125,46 +129,73 @@ impl AppState {
 
     fn handle_tap(&mut self, x: i16, y: i16) -> bool {
         let screen_w = crate::layout::SCREEN_W as i16;
-        let screen_h = crate::layout::SCREEN_H as i16;
 
-        // Bottom edge tap navigation (matches C factory)
-        if y >= screen_h - 60 {
-            if x <= 60 {
-                self.current_view = self.current_view.prev();
-                self.dirty = true;
-                return true;
-            } else if x >= screen_w - 60 {
-                self.current_view = self.current_view.next();
-                self.dirty = true;
-                return true;
-            }
-        }
-
-        // Forecast row tap to open hourly
-        if self.current_view == View::Forecast && !self.forecast_hourly_open {
-            let row_top = 52i16;
-            let row_stride = 64i16;
-            if y >= row_top && y < row_top + 4 * row_stride {
-                let row = ((y - row_top) / row_stride) as usize;
-                if let Some(fc) = &self.forecast {
-                    if row < fc.days.len() && !fc.days[row].entries.is_empty() {
-                        self.forecast_hourly_open = true;
-                        self.forecast_hourly_day = row;
-                        self.forecast_hourly_scroll = 0;
-                        self.dirty = true;
-                        return true;
-                    }
+        // ── Header tap: "Main >" on forecast, or right side of header navigates forward ──
+        if y < 30 {
+            if x >= screen_w - 120 {
+                // Right header tap: navigate to next view (or back to Now from Forecast)
+                if self.current_view == View::Forecast {
+                    self.current_view = View::Now;
+                } else {
+                    self.current_view = self.current_view.next();
                 }
-            }
-        }
-
-        // Close hourly on header tap
-        if self.current_view == View::Forecast && self.forecast_hourly_open
-            && y < 42 && x >= screen_w - 144 {
                 self.forecast_hourly_open = false;
                 self.dirty = true;
                 return true;
             }
+            if x < 120 {
+                // Left header tap: navigate to prev view
+                self.current_view = self.current_view.prev();
+                self.forecast_hourly_open = false;
+                self.dirty = true;
+                return true;
+            }
+        }
+
+        // ── NOW view taps ──
+        if self.current_view == View::Now {
+            // Tap on temperature area (120..280, 36..100) → toggle F/C
+            if (100..=280).contains(&x) && (36..=110).contains(&y) {
+                self.use_celsius = !self.use_celsius;
+                self.dirty = true;
+                return true;
+            }
+
+            // Tap on weather icon area (18..98, 46..126) → force refresh
+            if (10..=105).contains(&x) && (36..=130).contains(&y) {
+                self.force_weather_refresh = true;
+                self.dirty = true;
+                return true;
+            }
+
+            // Tap on forecast card at bottom → navigate to Forecast view
+            if y >= 208 {
+                self.current_view = View::Forecast;
+                self.dirty = true;
+                return true;
+            }
+        }
+
+        // ── Forecast view taps ──
+        if self.current_view == View::Forecast {
+            // Tap on daily row → open hourly drill-down
+            if !self.forecast_hourly_open {
+                let row_top = 38i16;
+                let row_stride = 66i16;
+                if y >= row_top && y < row_top + 4 * row_stride {
+                    let row = ((y - row_top) / row_stride) as usize;
+                    if let Some(fc) = &self.forecast {
+                        if row < fc.days.len() && !fc.days[row].entries.is_empty() {
+                            self.forecast_hourly_open = true;
+                            self.forecast_hourly_day = row;
+                            self.forecast_hourly_scroll = 0;
+                            self.dirty = true;
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
 
         false
     }

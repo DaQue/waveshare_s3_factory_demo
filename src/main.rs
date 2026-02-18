@@ -20,6 +20,7 @@ use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs};
 use log::info;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 // ── Display geometry (physical panel is 320x480 portrait) ───────────
@@ -528,9 +529,11 @@ fn main() -> Result<()> {
     // ── 12. Weather fetch thread ──
     let weather_data: Arc<Mutex<Option<(weather::CurrentWeather, weather::Forecast)>>> =
         Arc::new(Mutex::new(None));
+    let weather_refresh_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     if wifi_ok && !api_key.is_empty() {
         let wd = weather_data.clone();
+        let refresh = weather_refresh_flag.clone();
         let query = weather_query.clone();
         let key = api_key.clone();
         std::thread::Builder::new()
@@ -553,7 +556,14 @@ fn main() -> Result<()> {
                             continue;
                         }
                     }
-                    std::thread::sleep(Duration::from_secs(WEATHER_INTERVAL_SECS));
+                    // Sleep but wake early on refresh request
+                    for _ in 0..WEATHER_INTERVAL_SECS {
+                        if refresh.swap(false, Ordering::Relaxed) {
+                            info!("Weather refresh requested");
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
                 }
             })
             .expect("failed to spawn weather thread");
@@ -603,8 +613,17 @@ fn main() -> Result<()> {
                 );
                 state.current_weather = Some(current);
                 state.forecast = Some(forecast);
+                state.status_text = ip_address.clone();
                 state.dirty = true;
             }
+        }
+
+        // Check for force weather refresh from tap
+        if state.force_weather_refresh {
+            state.force_weather_refresh = false;
+            weather_refresh_flag.store(true, Ordering::Relaxed);
+            state.status_text = "Refreshing...".to_string();
+            state.dirty = true;
         }
 
         // Update time display

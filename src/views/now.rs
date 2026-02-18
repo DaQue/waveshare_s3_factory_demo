@@ -9,6 +9,10 @@ use crate::framebuffer::Framebuffer;
 use crate::layout::*;
 use crate::views::AppState;
 
+fn f_to_c(f: f32) -> f32 {
+    (f - 32.0) * 5.0 / 9.0
+}
+
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     fb.clear_color(BG_NOW);
     draw_hline(fb, HEADER_LINE_Y, LINE_COLOR_1);
@@ -61,15 +65,21 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     icon.draw_80(fb, 18, card_top + 10);
 
     if let Some(cw) = &state.current_weather {
+        let (temp, feels, unit) = if state.use_celsius {
+            (f_to_c(cw.temp_f), f_to_c(cw.feels_f), "C")
+        } else {
+            (cw.temp_f, cw.feels_f, "F")
+        };
+
         // Large temperature
-        let temp_text = format!("{:.0}°", cw.temp_f);
+        let temp_text = format!("{:.0}°{}", temp, unit);
         let temp_style = MonoTextStyle::new(&PROFONT_24_POINT, TEXT_PRIMARY);
         Text::new(&temp_text, Point::new(120, card_top + 46), temp_style)
             .draw(fb)
             .ok();
 
         // "FEELS XX°"
-        let feels_text = format!("FEELS {:.0}°", cw.feels_f);
+        let feels_text = format!("FEELS {:.0}°", feels);
         let feels_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_CONDITION);
         Text::new(&feels_text, Point::new(120, card_top + 72), feels_style)
             .draw(fb)
@@ -112,7 +122,8 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let indoor_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
     let mut indoor_text = String::from("Indoor:");
     if let Some(temp) = state.indoor_temp {
-        indoor_text += &format!("  {:.1}°", temp);
+        let t = if state.use_celsius { f_to_c(temp) } else { temp };
+        indoor_text += &format!("  {:.1}°", t);
     }
     if let Some(hum) = state.indoor_humidity {
         indoor_text += &format!("  {:.0}%RH", hum);
