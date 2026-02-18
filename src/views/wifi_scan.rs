@@ -72,7 +72,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     // Bottom text
     let bottom_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
-    Text::new(&state.bottom_text, Point::new(BOTTOM_X, BOTTOM_Y), bottom_style)
+    Text::new(&state.bottom_text, Point::new(12, SCREEN_H - 12), bottom_style)
         .draw(fb)
         .ok();
 }
