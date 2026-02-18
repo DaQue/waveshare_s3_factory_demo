@@ -130,7 +130,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     // X-axis label
     let samples = state.indoor_temp_history.len().max(state.indoor_hum_history.len());
-    let minutes = samples as u32 / 2; // 30s per sample
+    let minutes = (samples as u32 * 5) / 60; // 5s per sample
     let time_label = if minutes > 0 {
         format!("Last {} min", minutes)
     } else {

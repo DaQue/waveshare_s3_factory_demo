@@ -44,7 +44,7 @@ impl View {
 }
 
 /// Ring buffer for indoor sensor history (temp & humidity).
-pub const INDOOR_HISTORY_MAX: usize = 120; // 120 samples @ 30s = 1 hour
+pub const INDOOR_HISTORY_MAX: usize = 720; // 720 samples @ 5s = 1 hour
 
 /// Central app state shared across views.
 pub struct AppState {
