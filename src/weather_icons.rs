@@ -67,25 +67,6 @@ static ICON_MIST_36: &[u8] = include_bytes!("icons/mist_36.bmp");
 static ICON_FOG_36: &[u8] = include_bytes!("icons/fog_36.bmp");
 
 impl WeatherIcon {
-    /// Short text label for fallback display.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Clear => "Clear",
-            Self::FewClouds => "Few Clouds",
-            Self::ScatteredClouds => "Scattered",
-            Self::BrokenClouds => "Cloudy",
-            Self::Overcast => "Overcast",
-            Self::ShowerRain => "Showers",
-            Self::Rain => "Rain",
-            Self::Drizzle => "Drizzle",
-            Self::Thunderstorm => "Storm",
-            Self::Snow => "Snow",
-            Self::Atmosphere => "Haze",
-            Self::Mist => "Mist",
-            Self::Fog => "Fog",
-        }
-    }
-
     fn bmp_data_80(self) -> &'static [u8] {
         match self {
             Self::Clear => ICON_CLEAR_80,

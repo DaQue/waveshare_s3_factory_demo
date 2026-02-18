@@ -518,11 +518,11 @@ fn main() -> Result<()> {
     state.wifi_networks = wifi_networks;
     state.ip_address = ip_address.clone();
     if wifi_ok {
-        state.status_text = format!("WiFi: {} | {}", wifi_ssid, ip_address);
+        state.status_text = ip_address.clone();
     } else if wifi_ssid.is_empty() {
-        state.status_text = "No WiFi configured".to_string();
+        state.status_text = "No WiFi".to_string();
     } else {
-        state.status_text = format!("WiFi '{}' failed", wifi_ssid);
+        state.status_text = "WiFi failed".to_string();
     }
 
     // ── 12. Weather fetch thread ──

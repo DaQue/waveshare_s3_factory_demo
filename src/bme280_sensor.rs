@@ -185,6 +185,7 @@ impl Bme280 {
         (p as f32) / 25600.0
     }
 
+    #[allow(clippy::precedence)]
     fn compensate_humidity(&self, adc_h: i32, t_fine: i32) -> f32 {
         // BME280 datasheet Section 4.2.3 — integer compensation formula (i64 to avoid overflow)
         let v = (t_fine - 76800) as i64;

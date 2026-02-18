@@ -24,7 +24,6 @@ pub const BG_ABOUT: Rgb565 = rgb(22, 28, 38);
 // ── Line / separator colors ─────────────────────────────────────────
 
 pub const LINE_COLOR_1: Rgb565 = rgb(56, 63, 76);
-pub const LINE_COLOR_2: Rgb565 = rgb(45, 52, 64);
 pub const LINE_COLOR_3: Rgb565 = rgb(58, 70, 84);
 
 // ── Card colors ─────────────────────────────────────────────────────
@@ -51,7 +50,6 @@ pub const TEXT_SECONDARY: Rgb565 = rgb(225, 228, 233);
 pub const TEXT_TERTIARY: Rgb565 = rgb(188, 196, 208);
 pub const TEXT_DETAIL: Rgb565 = rgb(184, 189, 198);
 pub const TEXT_CONDITION: Rgb565 = rgb(166, 208, 255);
-pub const TEXT_WEATHER: Rgb565 = rgb(214, 218, 226);
 pub const TEXT_BOTTOM: Rgb565 = rgb(140, 148, 160);
 
 // ── Layout constants (landscape: 480w x 320h) ──────────────────────
@@ -60,39 +58,11 @@ pub const SCREEN_W: i32 = 480;
 pub const SCREEN_H: i32 = 320;
 
 pub const HEADER_LINE_Y: i32 = 30;
-pub const HEADER_LINE2_Y: i32 = 34;
-
 pub const CARD_MARGIN: i32 = 8;
 pub const CARD_RADIUS: i32 = 12;
 
-// NOW view layout (landscape: weather card + stats + preview)
-pub const NOW_CARD_Y: i32 = 38;
-pub const NOW_CARD_H: i32 = 140;
-pub const NOW_ICON_X: i32 = 20;
-pub const NOW_TEMP_X: i32 = 160;
-pub const NOW_CONDITION_X: i32 = 160;
-pub const NOW_CONDITION_Y: i32 = 120;
-pub const NOW_WEATHER_X: i32 = 160;
-pub const NOW_WEATHER_Y: i32 = 142;
-pub const NOW_DIVIDER_Y: i32 = 184;
-pub const NOW_STATS_X: i32 = 12;
-pub const NOW_STATS_Y1: i32 = 198;
-pub const NOW_STATS_Y2: i32 = 214;
-
-// Preview cards at bottom of NOW view
-pub const PREVIEW_Y: i32 = 234;
-pub const PREVIEW_H: i32 = 50;
-pub const PREVIEW_GAP: i32 = 6;
-
 // FORECAST view layout
-pub const FORECAST_ROW_Y_BASE: i32 = 40;
-pub const FORECAST_ROW_STRIDE: i32 = 56;
-pub const FORECAST_ROW_H: i32 = 50;
-pub const FORECAST_ICON_X: i32 = 19;
-pub const FORECAST_TITLE_X: i32 = 80;
-pub const FORECAST_DETAIL_X: i32 = 80;
 pub const FORECAST_ROWS: usize = 4;
-pub const PREVIEW_DAYS: usize = 3;
 
 // INDOOR view layout
 pub const INDOOR_CARD_Y: i32 = 40;

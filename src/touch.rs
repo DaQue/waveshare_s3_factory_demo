@@ -58,6 +58,7 @@ impl TouchState {
         self.poll_count += 1;
 
         // Log touch stats every 50 polls (~5 seconds at 100ms tick)
+        #[allow(clippy::manual_is_multiple_of)]
         if self.poll_count % 50 == 0 {
             debug!(
                 "TOUCH stats: polls={} errs={} touches={}",
