@@ -64,20 +64,8 @@ pub const CARD_RADIUS: i32 = 12;
 // FORECAST view layout
 pub const FORECAST_ROWS: usize = 4;
 
-// INDOOR view layout
-pub const INDOOR_CARD_Y: i32 = 40;
-pub const INDOOR_TEMP_X: i32 = 24;
-pub const INDOOR_TEMP_Y: i32 = 70;
-pub const INDOOR_HUM_X: i32 = 24;
-pub const INDOOR_HUM_Y: i32 = 140;
-pub const INDOOR_PRESS_X: i32 = 24;
-pub const INDOOR_PRESS_Y: i32 = 210;
-
 // I2C / WiFi / About card
 pub const INFO_CARD_Y: i32 = 40;
-
-pub const BOTTOM_Y: i32 = SCREEN_H - 12;
-pub const BOTTOM_X: i32 = 12;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 

@@ -1,84 +1,204 @@
 use embedded_graphics::{
     mono_font::MonoTextStyle,
+    pixelcolor::Rgb565,
     prelude::*,
-    text::Text,
+    primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
+    text::{Alignment, Text},
 };
-use profont::{PROFONT_10_POINT, PROFONT_14_POINT, PROFONT_18_POINT, PROFONT_24_POINT};
+use profont::{PROFONT_10_POINT, PROFONT_14_POINT, PROFONT_24_POINT};
 
 use crate::framebuffer::Framebuffer;
 use crate::layout::*;
 use crate::views::AppState;
 
-pub fn draw(fb: &mut Framebuffer, state: &AppState) {
-    // 1. Fill background
-    fb.clear_color(BG_INDOOR);
+// Graph colors
+const GRAPH_TEMP_COLOR: Rgb565 = rgb(255, 140, 60);   // warm orange
+const GRAPH_HUM_COLOR: Rgb565 = rgb(80, 180, 255);    // cool blue
+const GRAPH_GRID_COLOR: Rgb565 = rgb(40, 48, 58);     // subtle grid
+const GRAPH_BG: Rgb565 = rgb(16, 20, 28);             // dark graph area
 
-    // 2. Header line
+pub fn draw(fb: &mut Framebuffer, state: &AppState) {
+    fb.clear_color(BG_INDOOR);
     draw_hline(fb, HEADER_LINE_Y, LINE_COLOR_3);
 
-    // 3. Main card spanning most of the screen
-    let card_h = SCREEN_H - 64 - INDOOR_CARD_Y;
-    draw_card(
-        fb,
-        CARD_MARGIN,
-        INDOOR_CARD_Y,
-        SCREEN_W - 2 * CARD_MARGIN,
-        card_h,
-        16,
-        CARD_FILL_INDOOR,
-        CARD_BORDER_INDOOR,
-        2,
-    );
-
-    // 4. Title
-    let title_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_HEADER);
-    Text::new("Indoor", Point::new(14, 26), title_style)
+    // Header
+    let header_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_HEADER);
+    Text::new("Indoor", Point::new(14, 24), header_style)
         .draw(fb)
         .ok();
 
+    // Current readings - large display across top
+    let reading_y = 52;
     let primary_style = MonoTextStyle::new(&PROFONT_24_POINT, TEXT_PRIMARY);
-    let secondary_style = MonoTextStyle::new(&PROFONT_18_POINT, TEXT_SECONDARY);
-    let placeholder_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_DETAIL);
+    let label_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
 
-    // 5. Temperature
     if let Some(temp) = state.indoor_temp {
-        let text = format!("{:.1}°F", temp);
-        Text::new(&text, Point::new(INDOOR_TEMP_X, INDOOR_TEMP_Y + 30), primary_style)
+        let t = if state.use_celsius {
+            format!("{:.1}°C", (temp - 32.0) * 5.0 / 9.0)
+        } else {
+            format!("{:.1}°F", temp)
+        };
+        Text::new(&t, Point::new(20, reading_y), primary_style)
             .draw(fb)
             .ok();
-    } else {
-        Text::new("No sensor", Point::new(INDOOR_TEMP_X, INDOOR_TEMP_Y + 30), placeholder_style)
+        Text::new("TEMP", Point::new(20, reading_y + 16), label_style)
             .draw(fb)
             .ok();
     }
 
-    // 6. Humidity
     if let Some(hum) = state.indoor_humidity {
-        let text = format!("{:.0}% RH", hum);
-        Text::new(&text, Point::new(INDOOR_HUM_X, INDOOR_HUM_Y + 30), primary_style)
+        let t = format!("{:.0}%", hum);
+        Text::new(&t, Point::new(200, reading_y), primary_style)
             .draw(fb)
             .ok();
-    } else {
-        Text::new("No sensor", Point::new(INDOOR_HUM_X, INDOOR_HUM_Y + 30), placeholder_style)
+        Text::new("HUMIDITY", Point::new(200, reading_y + 16), label_style)
             .draw(fb)
             .ok();
     }
 
-    // 7. Pressure
     if let Some(press) = state.indoor_pressure {
-        let text = format!("{:.0} hPa", press);
-        Text::new(&text, Point::new(INDOOR_PRESS_X, INDOOR_PRESS_Y + 30), secondary_style)
+        let t = format!("{:.0}", press);
+        let press_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_SECONDARY);
+        Text::new(&t, Point::new(370, reading_y - 6), press_style)
             .draw(fb)
             .ok();
-    } else {
-        Text::new("No sensor", Point::new(INDOOR_PRESS_X, INDOOR_PRESS_Y + 30), placeholder_style)
+        Text::new("hPa", Point::new(370, reading_y + 10), label_style)
             .draw(fb)
             .ok();
     }
 
-    // 9. Bottom text
-    let bottom_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
-    Text::new(&state.bottom_text, Point::new(BOTTOM_X, BOTTOM_Y), bottom_style)
+    // Graph area
+    let graph_x = 50;
+    let graph_y = 88;
+    let graph_w = SCREEN_W - graph_x - 16;
+    let graph_h = 180;
+
+    // Graph background
+    let bg_style = PrimitiveStyleBuilder::new().fill_color(GRAPH_BG).build();
+    Rectangle::new(
+        Point::new(graph_x, graph_y),
+        Size::new(graph_w as u32, graph_h as u32),
+    )
+    .into_styled(bg_style)
+    .draw(fb)
+    .ok();
+
+    // Horizontal grid lines (4 lines)
+    let grid_style = PrimitiveStyle::with_stroke(GRAPH_GRID_COLOR, 1);
+    for i in 1..4 {
+        let gy = graph_y + (graph_h * i) / 4;
+        Line::new(
+            Point::new(graph_x, gy),
+            Point::new(graph_x + graph_w, gy),
+        )
+        .into_styled(grid_style)
         .draw(fb)
         .ok();
+    }
+
+    // Draw temperature line
+    if state.indoor_temp_history.len() >= 2 {
+        draw_line_graph(
+            fb,
+            &state.indoor_temp_history,
+            graph_x, graph_y, graph_w, graph_h,
+            GRAPH_TEMP_COLOR,
+        );
+    }
+
+    // Draw humidity line
+    if state.indoor_hum_history.len() >= 2 {
+        draw_line_graph(
+            fb,
+            &state.indoor_hum_history,
+            graph_x, graph_y, graph_w, graph_h,
+            GRAPH_HUM_COLOR,
+        );
+    }
+
+    // Y-axis labels (auto-scale based on data)
+    let axis_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
+    if !state.indoor_temp_history.is_empty() {
+        let (min_v, max_v) = data_range(&state.indoor_temp_history);
+        let top_label = format!("{:.0}", max_v);
+        let bot_label = format!("{:.0}", min_v);
+        Text::with_alignment(&top_label, Point::new(graph_x - 4, graph_y + 8), axis_style, Alignment::Right)
+            .draw(fb).ok();
+        Text::with_alignment(&bot_label, Point::new(graph_x - 4, graph_y + graph_h - 2), axis_style, Alignment::Right)
+            .draw(fb).ok();
+    }
+
+    // X-axis label
+    let samples = state.indoor_temp_history.len().max(state.indoor_hum_history.len());
+    let minutes = samples as u32 / 2; // 30s per sample
+    let time_label = if minutes > 0 {
+        format!("Last {} min", minutes)
+    } else {
+        "Collecting...".to_string()
+    };
+    Text::with_alignment(
+        &time_label,
+        Point::new(graph_x + graph_w / 2, graph_y + graph_h + 14),
+        axis_style,
+        Alignment::Center,
+    )
+    .draw(fb)
+    .ok();
+
+    // Legend
+    let legend_y = graph_y + graph_h + 14;
+    let legend_style = MonoTextStyle::new(&PROFONT_10_POINT, GRAPH_TEMP_COLOR);
+    Text::new("-- Temp", Point::new(graph_x, legend_y), legend_style)
+        .draw(fb).ok();
+    let legend_style2 = MonoTextStyle::new(&PROFONT_10_POINT, GRAPH_HUM_COLOR);
+    Text::new("-- Humidity", Point::new(graph_x + 90, legend_y), legend_style2)
+        .draw(fb).ok();
+
+    // Bottom hint
+    let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
+    Text::with_alignment(
+        "(swipe <-/-> or tap header to switch pages)",
+        Point::new(SCREEN_W / 2, SCREEN_H - 4),
+        hint_style,
+        Alignment::Center,
+    )
+    .draw(fb)
+    .ok();
+}
+
+/// Get min/max of data with padding.
+fn data_range(data: &[f32]) -> (f32, f32) {
+    let min = data.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let pad = ((max - min) * 0.1).max(1.0);
+    (min - pad, max + pad)
+}
+
+/// Draw a line graph of data points within the given rectangle.
+fn draw_line_graph(
+    fb: &mut Framebuffer,
+    data: &[f32],
+    x: i32, y: i32, w: i32, h: i32,
+    color: Rgb565,
+) {
+    if data.len() < 2 {
+        return;
+    }
+
+    let (min_v, max_v) = data_range(data);
+    let range = (max_v - min_v).max(0.01);
+    let line_style = PrimitiveStyle::with_stroke(color, 2);
+
+    let n = data.len();
+    for i in 1..n {
+        let x1 = x + ((i - 1) as i32 * w) / (n - 1) as i32;
+        let x2 = x + (i as i32 * w) / (n - 1) as i32;
+        let y1 = y + h - ((data[i - 1] - min_v) / range * h as f32) as i32;
+        let y2 = y + h - ((data[i] - min_v) / range * h as f32) as i32;
+
+        Line::new(Point::new(x1, y1), Point::new(x2, y2))
+            .into_styled(line_style)
+            .draw(fb)
+            .ok();
+    }
 }

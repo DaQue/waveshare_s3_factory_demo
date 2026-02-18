@@ -599,6 +599,15 @@ fn main() -> Result<()> {
                     state.indoor_temp = Some(reading.temperature_f);
                     state.indoor_humidity = Some(reading.humidity);
                     state.indoor_pressure = Some(reading.pressure_hpa);
+                    // Push to history ring buffer
+                    if state.indoor_temp_history.len() >= views::INDOOR_HISTORY_MAX {
+                        state.indoor_temp_history.remove(0);
+                    }
+                    state.indoor_temp_history.push(reading.temperature_f);
+                    if state.indoor_hum_history.len() >= views::INDOOR_HISTORY_MAX {
+                        state.indoor_hum_history.remove(0);
+                    }
+                    state.indoor_hum_history.push(reading.humidity);
                     state.dirty = true;
                 }
             }

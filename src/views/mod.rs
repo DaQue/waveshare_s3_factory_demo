@@ -43,6 +43,9 @@ impl View {
     }
 }
 
+/// Ring buffer for indoor sensor history (temp & humidity).
+pub const INDOOR_HISTORY_MAX: usize = 120; // 120 samples @ 30s = 1 hour
+
 /// Central app state shared across views.
 pub struct AppState {
     pub current_view: View,
@@ -51,6 +54,8 @@ pub struct AppState {
     pub indoor_temp: Option<f32>,
     pub indoor_humidity: Option<f32>,
     pub indoor_pressure: Option<f32>,
+    pub indoor_temp_history: Vec<f32>,
+    pub indoor_hum_history: Vec<f32>,
     pub time_text: String,
     pub status_text: String,
     pub bottom_text: String,
@@ -74,6 +79,8 @@ impl AppState {
             indoor_temp: None,
             indoor_humidity: None,
             indoor_pressure: None,
+            indoor_temp_history: Vec::new(),
+            indoor_hum_history: Vec::new(),
             time_text: String::new(),
             status_text: "Starting...".to_string(),
             bottom_text: String::new(),
