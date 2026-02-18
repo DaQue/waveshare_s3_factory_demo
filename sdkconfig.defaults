@@ -1,5 +1,11 @@
 # Increase main task stack for Rust std runtime
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
+
+# USB Serial/JTAG console (ESP32-S3 native USB)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+# stdin: convert CR to LF so read_line() works with terminal Enter key
+CONFIG_NEWLIB_STDIN_LINE_ENDING_CR=y
 # Keep XPowers on legacy I2C API to avoid mixed old/new driver conflict.
 CONFIG_XPOWERS_ESP_IDF_OLD_API=y
 # CONFIG_XPOWERS_ESP_IDF_NEW_API is not set

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use esp_idf_svc::nvs::{EspNvs, NvsDefault};
 use log::{info, warn};
-use std::io::{self, BufRead};
+use std::io::{self, Read};
 use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
@@ -11,25 +11,33 @@ pub fn spawn_console(nvs: Arc<Mutex<EspNvs<NvsDefault>>>, config: Arc<Mutex<Conf
         .name("console".into())
         .stack_size(8192)
         .spawn(move || {
-            info!("console: interactive mode (type 'help' for commands)");
+            info!("console: ready (type 'help')");
             let stdin = io::stdin();
             let mut reader = stdin.lock();
             let mut line = String::new();
+            let mut buf = [0u8; 1];
             loop {
-                line.clear();
-                match reader.read_line(&mut line) {
-                    Ok(0) => {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        continue;
+                match reader.read(&mut buf) {
+                    Ok(1) => {
+                        let ch = buf[0];
+                        if ch == b'\n' || ch == b'\r' {
+                            if line.is_empty() {
+                                continue;
+                            }
+                            info!("> {}", line);
+                            if let Err(e) = process_line(&line, &nvs, &config) {
+                                warn!("console: error: {}", e);
+                            }
+                            line.clear();
+                        } else if ch == 0x7f || ch == 0x08 {
+                            // Backspace
+                            line.pop();
+                        } else if ch >= 0x20 {
+                            line.push(ch as char);
+                        }
                     }
                     Ok(_) => {
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        if let Err(e) = process_line(trimmed, &nvs, &config) {
-                            warn!("console: error: {}", e);
-                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                     Err(_) => {
                         std::thread::sleep(std::time::Duration::from_millis(100));
