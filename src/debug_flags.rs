@@ -7,6 +7,9 @@ pub static DEBUG_BME280: AtomicBool = AtomicBool::new(false);
 pub static DEBUG_WIFI: AtomicBool = AtomicBool::new(false);
 pub static DEBUG_WEATHER: AtomicBool = AtomicBool::new(false);
 
+/// Request flags — console sets these, main loop acts on them.
+pub static REQUEST_I2C_SCAN: AtomicBool = AtomicBool::new(false);
+
 pub fn is_on(flag: &AtomicBool) -> bool {
     flag.load(Ordering::Relaxed)
 }

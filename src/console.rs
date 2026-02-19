@@ -62,6 +62,7 @@ fn process_line(
         "help" | "?" => print_help(),
         "wifi" => handle_wifi(sub, rest, nvs, config)?,
         "api" => handle_api(sub, rest, nvs, config)?,
+        "i2c" => handle_i2c(sub),
         "debug" => handle_debug(sub),
         "status" => {
             let cfg = config.lock().unwrap();
@@ -90,6 +91,7 @@ fn print_help() {
     info!("  wifi set <ssid> <pass>     - set Wi-Fi credentials");
     info!("  wifi scan                  - scan for nearby networks");
     info!("  wifi clear                 - clear Wi-Fi override");
+    info!("  i2c scan                   - rescan I2C bus");
     info!("  api show                   - show API config");
     info!("  api set-key <key>          - set OpenWeather API key");
     info!("  api set-query <query>      - set location query");
@@ -133,6 +135,16 @@ fn handle_debug(sub: &str) {
         _ => {
             info!("unknown module '{}'. options: touch, bme280, wifi, weather, all", sub);
         }
+    }
+}
+
+fn handle_i2c(sub: &str) {
+    match sub {
+        "scan" | "" => {
+            info!("i2c: scan requested (will run on next tick)");
+            crate::debug_flags::REQUEST_I2C_SCAN.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        _ => info!("usage: i2c scan"),
     }
 }
 

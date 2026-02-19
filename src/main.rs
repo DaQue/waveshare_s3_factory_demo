@@ -645,6 +645,14 @@ fn main() -> Result<()> {
             }
         }
 
+        // I2C rescan requested from console
+        if debug_flags::REQUEST_I2C_SCAN.swap(false, Ordering::Relaxed) {
+            info!("I2C rescan...");
+            let devices = scan_i2c(&mut i2c);
+            state.i2c_devices = devices;
+            state.dirty = true;
+        }
+
         // Save C/F preference to NVS on toggle
         if state.save_celsius_pref {
             state.save_celsius_pref = false;
