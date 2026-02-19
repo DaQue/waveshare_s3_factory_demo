@@ -517,8 +517,10 @@ fn main() -> Result<()> {
 
     // ── 11. App state ──
     let mut state = views::AppState::new();
+    state.use_celsius = cfg.lock().unwrap().use_celsius;
     state.i2c_devices = i2c_devices;
     state.wifi_networks = wifi_networks;
+    state.wifi_ssid = wifi_ssid.clone();
     state.ip_address = ip_address.clone();
     if wifi_ok {
         state.status_text = ip_address.clone();
@@ -640,6 +642,14 @@ fn main() -> Result<()> {
                 state.forecast = Some(forecast);
                 state.status_text = ip_address.clone();
                 state.dirty = true;
+            }
+        }
+
+        // Save C/F preference to NVS on toggle
+        if state.save_celsius_pref {
+            state.save_celsius_pref = false;
+            if let Ok(mut nvs) = nvs.try_lock() {
+                let _ = config::Config::save_use_celsius(&mut nvs, state.use_celsius);
             }
         }
 

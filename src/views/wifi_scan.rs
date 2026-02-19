@@ -1,5 +1,6 @@
 use embedded_graphics::{
     mono_font::MonoTextStyle,
+    pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::Text,
@@ -22,7 +23,9 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     // Header text
     let header_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_HEADER);
-    Text::new("WiFi Scan", Point::new(14, 26), header_style)
+    let count = state.wifi_networks.len();
+    let title = format!("WiFi  ({} network{})", count, if count == 1 { "" } else { "s" });
+    Text::new(&title, Point::new(14, 26), header_style)
         .draw(fb)
         .ok();
 
@@ -39,32 +42,43 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     if state.wifi_networks.is_empty() {
         let placeholder_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_DETAIL);
-        Text::new("Scanning...", Point::new(24, 80), placeholder_style)
+        Text::new("No networks found", Point::new(24, 80), placeholder_style)
             .draw(fb)
             .ok();
     } else {
-        let ssid_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_SECONDARY);
-        let rssi_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_DETAIL);
+        // Sort by signal strength (strongest first)
+        let mut sorted: Vec<_> = state.wifi_networks.iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-        for (i, (ssid, rssi)) in state.wifi_networks.iter().take(8).enumerate() {
-            let y = 80 + (i as i32) * 20;
+        let connected_color = Rgb565::new(8, 48, 8); // green
+        let normal_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_SECONDARY);
+        let connected_style = MonoTextStyle::new(&PROFONT_12_POINT, connected_color);
+        let rssi_normal = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_DETAIL);
+        let rssi_connected = MonoTextStyle::new(&PROFONT_10_POINT, connected_color);
 
-            // SSID
-            Text::new(ssid, Point::new(24, y), ssid_style)
+        for (i, (ssid, rssi)) in sorted.iter().take(10).enumerate() {
+            let y = 76 + (i as i32) * 22;
+            if y > SCREEN_H - 60 {
+                break;
+            }
+
+            let is_connected = !state.wifi_ssid.is_empty() && *ssid == state.wifi_ssid;
+            let style = if is_connected { connected_style } else { normal_style };
+            let r_style = if is_connected { rssi_connected } else { rssi_normal };
+
+            // Truncate long SSIDs
+            let display_ssid = if ssid.len() > 22 {
+                format!("{}...", &ssid[..19])
+            } else {
+                ssid.to_string()
+            };
+
+            Text::new(&display_ssid, Point::new(24, y), style)
                 .draw(fb)
                 .ok();
 
-            // Signal bars
-            let bars = if *rssi >= -50 {
-                "||||"
-            } else if *rssi >= -60 {
-                "|||."
-            } else if *rssi >= -70 {
-                "||.."
-            } else {
-                "|..."
-            };
-            Text::new(bars, Point::new(SCREEN_W - 80, y), rssi_style)
+            let rssi_text = format!("{} dBm", rssi);
+            Text::new(&rssi_text, Point::new(SCREEN_W - 110, y), r_style)
                 .draw(fb)
                 .ok();
         }

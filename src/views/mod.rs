@@ -61,11 +61,13 @@ pub struct AppState {
     pub bottom_text: String,
     pub i2c_devices: Vec<u8>,
     pub wifi_networks: Vec<(String, i8)>, // (ssid, rssi)
+    pub wifi_ssid: String,
     pub ip_address: String,
     pub forecast_hourly_open: bool,
     pub forecast_hourly_day: usize,
     pub forecast_hourly_scroll: usize,
     pub use_celsius: bool,
+    pub save_celsius_pref: bool,
     pub force_weather_refresh: bool,
     pub dirty: bool,
 }
@@ -86,11 +88,13 @@ impl AppState {
             bottom_text: String::new(),
             i2c_devices: Vec::new(),
             wifi_networks: Vec::new(),
+            wifi_ssid: String::new(),
             ip_address: String::new(),
             forecast_hourly_open: false,
             forecast_hourly_day: 0,
             forecast_hourly_scroll: 0,
             use_celsius: false,
+            save_celsius_pref: false,
             force_weather_refresh: false,
             dirty: true,
         }
@@ -164,6 +168,7 @@ impl AppState {
             // Tap on temperature area (120..280, 36..100) → toggle F/C
             if (100..=280).contains(&x) && (36..=110).contains(&y) {
                 self.use_celsius = !self.use_celsius;
+                self.save_celsius_pref = true;
                 self.dirty = true;
                 return true;
             }

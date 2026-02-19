@@ -9,6 +9,20 @@ use crate::framebuffer::Framebuffer;
 use crate::layout::*;
 use crate::views::AppState;
 
+/// Map known I2C addresses to device names.
+fn device_name(addr: u8) -> &'static str {
+    match addr {
+        0x34 => "AXP2101 PMIC",
+        0x3B => "AXS15231B Touch",
+        0x76 => "BME280 Sensor",
+        0x77 => "BME280 Sensor",
+        0x50 => "EEPROM",
+        0x68 => "DS3231 RTC",
+        0x57 => "MAX30102 SpO2",
+        _ => "",
+    }
+}
+
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     // Fill background
     let bg_style = PrimitiveStyleBuilder::new().fill_color(BG_I2C).build();
@@ -22,7 +36,9 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     // Header text
     let header_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_HEADER);
-    Text::new("I2C Scan", Point::new(14, 26), header_style)
+    let count = state.i2c_devices.len();
+    let title = format!("I2C Bus  ({} device{})", count, if count == 1 { "" } else { "s" });
+    Text::new(&title, Point::new(14, 26), header_style)
         .draw(fb)
         .ok();
 
@@ -43,20 +59,25 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
             .draw(fb)
             .ok();
     } else {
-        let text_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_SECONDARY);
-        let mut x = 24;
-        let mut y = 80;
-        for (idx, addr) in state.i2c_devices.iter().enumerate() {
-            let label = format!("0x{:02X}", addr);
-            Text::new(&label, Point::new(x, y), text_style)
+        let addr_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_SECONDARY);
+        let name_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_DETAIL);
+
+        for (i, addr) in state.i2c_devices.iter().enumerate() {
+            let y = 76 + (i as i32) * 24;
+            if y > SCREEN_H - 60 {
+                break;
+            }
+
+            let addr_text = format!("0x{:02X}", addr);
+            Text::new(&addr_text, Point::new(24, y), addr_style)
                 .draw(fb)
                 .ok();
 
-            if (idx + 1) % 4 == 0 {
-                x = 24;
-                y += 24;
-            } else {
-                x += 68;
+            let name = device_name(*addr);
+            if !name.is_empty() {
+                Text::new(name, Point::new(90, y), name_style)
+                    .draw(fb)
+                    .ok();
             }
         }
     }

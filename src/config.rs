@@ -9,6 +9,7 @@ const KEY_WIFI_PASS: &str = "wifi_pass";
 const KEY_WX_API_KEY: &str = "wx_api_key";
 const KEY_WX_QUERY: &str = "wx_query";
 const KEY_TIMEZONE: &str = "timezone";
+const KEY_USE_CELSIUS: &str = "use_celsius";
 
 const DEFAULT_WIFI_SSID: &str = "YOUR_WIFI_SSID";
 const DEFAULT_WIFI_PASS: &str = "A7MZLB2nCuvUqIrpBQB";
@@ -22,6 +23,7 @@ pub struct Config {
     pub weather_api_key: String,
     pub weather_query: String,
     pub timezone: String,
+    pub use_celsius: bool,
 }
 
 /// Read a string from NVS, returning None if the key is absent or on error.
@@ -66,12 +68,16 @@ impl Config {
             .unwrap_or_else(|| DEFAULT_TIMEZONE.to_string());
         info!("NVS timezone = {:?}", timezone);
 
+        let use_celsius = nvs.get_u8(KEY_USE_CELSIUS).unwrap_or(None).unwrap_or(0) != 0;
+        info!("NVS use_celsius = {}", use_celsius);
+
         Config {
             wifi_ssid,
             wifi_pass,
             weather_api_key,
             weather_query,
             timezone,
+            use_celsius,
         }
     }
 
@@ -91,6 +97,12 @@ impl Config {
     pub fn save_weather_query(nvs: &mut EspNvs<NvsDefault>, query: &str) -> Result<()> {
         nvs.set_str(KEY_WX_QUERY, query)?;
         info!("NVS saved wx_query={:?}", query);
+        Ok(())
+    }
+
+    pub fn save_use_celsius(nvs: &mut EspNvs<NvsDefault>, celsius: bool) -> Result<()> {
+        nvs.set_u8(KEY_USE_CELSIUS, if celsius { 1 } else { 0 })?;
+        info!("NVS saved use_celsius={}", celsius);
         Ok(())
     }
 
