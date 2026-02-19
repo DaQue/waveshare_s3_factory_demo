@@ -88,6 +88,7 @@ fn print_help() {
     info!("commands:");
     info!("  wifi show                  - show Wi-Fi config");
     info!("  wifi set <ssid> <pass>     - set Wi-Fi credentials");
+    info!("  wifi scan                  - scan for nearby networks");
     info!("  wifi clear                 - clear Wi-Fi override");
     info!("  api show                   - show API config");
     info!("  api set-key <key>          - set OpenWeather API key");
@@ -168,6 +169,48 @@ fn handle_wifi(
             config.lock().unwrap().wifi_pass = pass.to_string();
             info!("saved: SSID='{}' pass=******** ({} chars)", ssid, pass.len());
             info!("type 'reboot' to apply");
+        }
+        "scan" => {
+            info!("wifi: scanning...");
+            unsafe {
+                let scan_cfg = esp_idf_sys::wifi_scan_config_t {
+                    ssid: core::ptr::null_mut(),
+                    bssid: core::ptr::null_mut(),
+                    channel: 0,
+                    show_hidden: false,
+                    scan_type: esp_idf_sys::wifi_scan_type_t_WIFI_SCAN_TYPE_ACTIVE,
+                    scan_time: esp_idf_sys::wifi_scan_time_t {
+                        active: esp_idf_sys::wifi_active_scan_time_t {
+                            min: 100,
+                            max: 300,
+                        },
+                        passive: 0,
+                    },
+                    home_chan_dwell_time: 0,
+                };
+                let rc = esp_idf_sys::esp_wifi_scan_start(&scan_cfg, true);
+                if rc != esp_idf_sys::ESP_OK {
+                    warn!("wifi scan start failed (err {})", rc);
+                    return Ok(());
+                }
+                let mut count: u16 = 0;
+                esp_idf_sys::esp_wifi_scan_get_ap_num(&mut count);
+                if count == 0 {
+                    info!("wifi: no networks found");
+                    return Ok(());
+                }
+                let max = count.min(20) as u16;
+                let mut records = vec![core::mem::zeroed::<esp_idf_sys::wifi_ap_record_t>(); max as usize];
+                let mut actual = max;
+                esp_idf_sys::esp_wifi_scan_get_ap_records(&mut actual, records.as_mut_ptr());
+                info!("wifi: found {} networks", actual);
+                for ap in &records[..actual as usize] {
+                    let ssid = core::str::from_utf8(&ap.ssid)
+                        .unwrap_or("?")
+                        .trim_end_matches('\0');
+                    info!("  {:>4} dBm  ch{:<2}  {}", ap.rssi, ap.primary, ssid);
+                }
+            }
         }
         "clear" => {
             let mut nvs = nvs.lock().unwrap();

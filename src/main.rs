@@ -49,6 +49,7 @@ const WEATHER_RETRY_SECS: u64 = 30;
 const BME280_INTERVAL_MS: u32 = 5_000;
 const TICK_MS: u64 = 100;
 const TIME_UPDATE_TICKS: u32 = 10; // every second
+const WIFI_DEBUG_TICKS: u32 = 100; // every 10 seconds
 
 // ── FFI structs matching the C AXS15231B driver ────────────────────
 
@@ -648,6 +649,27 @@ fn main() -> Result<()> {
             weather_refresh_flag.store(true, Ordering::Relaxed);
             state.status_text = "Refreshing...".to_string();
             state.dirty = true;
+        }
+
+        // WiFi debug logging (RSSI etc)
+        if tick_count.is_multiple_of(WIFI_DEBUG_TICKS)
+            && debug_flags::is_on(&debug_flags::DEBUG_WIFI)
+        {
+            unsafe {
+                let mut ap_info: esp_idf_sys::wifi_ap_record_t = core::mem::zeroed();
+                if esp_idf_sys::esp_wifi_sta_get_ap_info(&mut ap_info) == esp_idf_sys::ESP_OK {
+                    info!(
+                        "WiFi: RSSI={} ch={} SSID={}",
+                        ap_info.rssi,
+                        ap_info.primary,
+                        core::str::from_utf8(&ap_info.ssid)
+                            .unwrap_or("?")
+                            .trim_end_matches('\0')
+                    );
+                } else {
+                    info!("WiFi: not connected");
+                }
+            }
         }
 
         // Update time display

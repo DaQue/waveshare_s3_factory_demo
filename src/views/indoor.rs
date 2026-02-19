@@ -58,11 +58,10 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     if let Some(press) = state.indoor_pressure {
         let t = format!("{:.0}", press);
-        let press_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_SECONDARY);
-        Text::new(&t, Point::new(370, reading_y - 6), press_style)
+        Text::new(&t, Point::new(350, reading_y), primary_style)
             .draw(fb)
             .ok();
-        Text::new("hPa", Point::new(370, reading_y + 10), label_style)
+        Text::new("hPa", Point::new(350, reading_y + 16), label_style)
             .draw(fb)
             .ok();
     }
