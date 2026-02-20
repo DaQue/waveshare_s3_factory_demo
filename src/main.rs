@@ -5,6 +5,7 @@ mod debug_flags;
 mod framebuffer;
 mod http_client;
 mod layout;
+mod qmi8658;
 mod touch;
 mod time_sync;
 mod views;
@@ -467,7 +468,10 @@ fn main() -> Result<()> {
         info!("BME280 sensor ready");
     }
 
-    // ── 8. Touch controller ──
+    // ── 8. IMU (QMI8658) ──
+    let imu_ok = qmi8658::init(&mut i2c);
+
+    // ── 9. Touch controller ──
     touch::probe(&mut i2c);
     let mut touch_state = touch::TouchState::new();
 
@@ -642,6 +646,37 @@ fn main() -> Result<()> {
                 state.forecast = Some(forecast);
                 state.status_text = ip_address.clone();
                 state.dirty = true;
+            }
+        }
+
+        // IMU one-shot read requested from console
+        if debug_flags::REQUEST_IMU_READ.swap(false, Ordering::Relaxed) {
+            if imu_ok {
+                if let Some(r) = qmi8658::read(&mut i2c) {
+                    info!(
+                        "IMU accel: x={:+.3}g y={:+.3}g z={:+.3}g  gyro: x={:+.1} y={:+.1} z={:+.1} dps  temp={:.1}C",
+                        r.accel_x, r.accel_y, r.accel_z,
+                        r.gyro_x, r.gyro_y, r.gyro_z,
+                        r.temp_c
+                    );
+                } else {
+                    info!("IMU: read failed");
+                }
+            } else {
+                info!("IMU: not initialized");
+            }
+        }
+
+        // IMU continuous debug logging (every 1s when debug imu is on)
+        if imu_ok && debug_flags::is_on(&debug_flags::DEBUG_IMU)
+            && tick_count.is_multiple_of(TIME_UPDATE_TICKS)
+        {
+            if let Some(r) = qmi8658::read(&mut i2c) {
+                info!(
+                    "IMU: ax={:+.2} ay={:+.2} az={:+.2}  gx={:+.1} gy={:+.1} gz={:+.1}",
+                    r.accel_x, r.accel_y, r.accel_z,
+                    r.gyro_x, r.gyro_y, r.gyro_z,
+                );
             }
         }
 

@@ -63,6 +63,7 @@ fn process_line(
         "wifi" => handle_wifi(sub, rest, nvs, config)?,
         "api" => handle_api(sub, rest, nvs, config)?,
         "i2c" => handle_i2c(sub),
+        "imu" => handle_imu(sub),
         "debug" => handle_debug(sub),
         "status" => {
             let cfg = config.lock().unwrap();
@@ -92,12 +93,13 @@ fn print_help() {
     info!("  wifi scan                  - scan for nearby networks");
     info!("  wifi clear                 - clear Wi-Fi override");
     info!("  i2c scan                   - rescan I2C bus");
+    info!("  imu read                   - one-shot IMU reading");
     info!("  api show                   - show API config");
     info!("  api set-key <key>          - set OpenWeather API key");
     info!("  api set-query <query>      - set location query");
     info!("  api clear                  - clear API overrides");
     info!("  debug <module>             - toggle debug for module");
-    info!("    modules: touch, bme280, wifi, weather, all");
+    info!("    modules: touch, bme280, wifi, weather, imu, all");
     info!("  debug show                 - show debug flag status");
     info!("  status                     - show system status");
     info!("  reboot                     - reboot device");
@@ -125,18 +127,24 @@ fn handle_debug(sub: &str) {
             let on = toggle(&DEBUG_WEATHER);
             info!("debug weather: {}", if on { "ON" } else { "OFF" });
         }
+        "imu" => {
+            let on = toggle(&DEBUG_IMU);
+            info!("debug imu: {}", if on { "ON" } else { "OFF" });
+        }
         "all" => {
             // If any flag is off, turn all on; if all on, turn all off
             let any_off = !is_on(&DEBUG_TOUCH) || !is_on(&DEBUG_BME280)
-                || !is_on(&DEBUG_WIFI) || !is_on(&DEBUG_WEATHER);
+                || !is_on(&DEBUG_WIFI) || !is_on(&DEBUG_WEATHER)
+                || !is_on(&DEBUG_IMU);
             set(&DEBUG_TOUCH, any_off);
             set(&DEBUG_BME280, any_off);
             set(&DEBUG_WIFI, any_off);
             set(&DEBUG_WEATHER, any_off);
+            set(&DEBUG_IMU, any_off);
             info!("debug all: {}", if any_off { "ON" } else { "OFF" });
         }
         _ => {
-            info!("unknown module '{}'. options: touch, bme280, wifi, weather, all", sub);
+            info!("unknown module '{}'. options: touch, bme280, wifi, weather, imu, all", sub);
         }
     }
 }
@@ -148,6 +156,16 @@ fn handle_i2c(sub: &str) {
             crate::debug_flags::REQUEST_I2C_SCAN.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         _ => info!("usage: i2c scan"),
+    }
+}
+
+fn handle_imu(sub: &str) {
+    match sub {
+        "read" | "" => {
+            info!("imu: read requested (will run on next tick)");
+            crate::debug_flags::REQUEST_IMU_READ.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        _ => info!("usage: imu read"),
     }
 }
 

@@ -6,9 +6,11 @@ pub static DEBUG_TOUCH: AtomicBool = AtomicBool::new(false);
 pub static DEBUG_BME280: AtomicBool = AtomicBool::new(false);
 pub static DEBUG_WIFI: AtomicBool = AtomicBool::new(false);
 pub static DEBUG_WEATHER: AtomicBool = AtomicBool::new(false);
+pub static DEBUG_IMU: AtomicBool = AtomicBool::new(false);
 
 /// Request flags — console sets these, main loop acts on them.
 pub static REQUEST_I2C_SCAN: AtomicBool = AtomicBool::new(false);
+pub static REQUEST_IMU_READ: AtomicBool = AtomicBool::new(false);
 
 pub fn is_on(flag: &AtomicBool) -> bool {
     flag.load(Ordering::Relaxed)
@@ -26,10 +28,11 @@ pub fn toggle(flag: &AtomicBool) -> bool {
 
 pub fn status_line() -> String {
     format!(
-        "touch={} bme280={} wifi={} weather={}",
+        "touch={} bme280={} wifi={} weather={} imu={}",
         if is_on(&DEBUG_TOUCH) { "ON" } else { "off" },
         if is_on(&DEBUG_BME280) { "ON" } else { "off" },
         if is_on(&DEBUG_WIFI) { "ON" } else { "off" },
         if is_on(&DEBUG_WEATHER) { "ON" } else { "off" },
+        if is_on(&DEBUG_IMU) { "ON" } else { "off" },
     )
 }
