@@ -1,4 +1,8 @@
 /target
+**/target/
 /third_party/
 /.embuild/
 wifi.local.rs
+__pycache__/
+*.jpg
+*.png
