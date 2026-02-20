@@ -11,7 +11,7 @@ pub fn spawn_console(nvs: Arc<Mutex<EspNvs<NvsDefault>>>, config: Arc<Mutex<Conf
         .name("console".into())
         .stack_size(8192)
         .spawn(move || {
-            info!("console: ready (type 'help')");
+            info!("console: ready (type 'help') — use minicom Ctrl+A E for local echo");
             let stdin = io::stdin();
             let mut reader = stdin.lock();
             let mut line = String::new();
@@ -30,7 +30,6 @@ pub fn spawn_console(nvs: Arc<Mutex<EspNvs<NvsDefault>>>, config: Arc<Mutex<Conf
                             }
                             line.clear();
                         } else if ch == 0x7f || ch == 0x08 {
-                            // Backspace
                             line.pop();
                         } else if ch >= 0x20 {
                             line.push(ch as char);
