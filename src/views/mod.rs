@@ -107,11 +107,13 @@ impl AppState {
             Gesture::None => false,
             Gesture::SwipeLeft => {
                 self.current_view = self.current_view.next();
+                self.forecast_hourly_open = false;
                 self.dirty = true;
                 true
             }
             Gesture::SwipeRight => {
                 self.current_view = self.current_view.prev();
+                self.forecast_hourly_open = false;
                 self.dirty = true;
                 true
             }
