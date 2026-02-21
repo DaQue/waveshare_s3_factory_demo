@@ -54,6 +54,17 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     )
     .draw(fb)
     .ok();
+    if state.weather_stale {
+        let stale_style = MonoTextStyle::new(&PROFONT_10_POINT, rgb(255, 225, 80));
+        Text::with_alignment(
+            "WX STALE",
+            Point::new(screen_w - 8, 14),
+            stale_style,
+            Alignment::Right,
+        )
+        .draw(fb)
+        .ok();
+    }
 
     let card_top = 36;
     let card_h = if state.orientation.is_portrait() { 178 } else { 148 };

@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use esp_idf_hal::modem::Modem;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::wifi::{
@@ -10,7 +10,11 @@ use log::info;
 pub struct WifiResult {
     pub wifi: Box<EspWifi<'static>>,
     pub networks: Vec<(String, i8)>,
+    pub connected: bool,
+    pub ip_address: Option<String>,
 }
+
+pub type ReconnectOutcome = Option<(String, Vec<(String, i8)>)>;
 
 /// Log WiFi/AP state from ESP-IDF internals.
 fn log_wifi_diag(label: &str) {
@@ -110,18 +114,90 @@ pub fn connect_wifi(
             }
         }
     }
-    if !connected {
-        bail!("WiFi failed after 5 attempts");
+    let mut ip_address: Option<String> = None;
+    let mut networks = Vec::new();
+    if connected {
+        info!("WiFi associated, waiting for IP address...");
+        blocking_wifi.wait_netif_up()?;
+
+        let ip_info = blocking_wifi.wifi().sta_netif().get_ip_info()?;
+        info!("WiFi connected — IP: {}", ip_info.ip);
+        ip_address = Some(ip_info.ip.to_string());
+
+        // Scan for nearby networks (for wifi_scan display view) — done after
+        // connecting so it doesn't delay the connection or cause auth issues.
+        info!("WiFi scanning for nearby networks...");
+        networks = match blocking_wifi.scan() {
+            Ok(aps) => {
+                info!("WiFi scan found {} networks", aps.len());
+                aps.iter()
+                    .map(|ap| (ap.ssid.to_string(), ap.signal_strength))
+                    .collect::<Vec<_>>()
+            }
+            Err(e) => {
+                log::warn!("WiFi scan failed: {}", e);
+                Vec::new()
+            }
+        };
+    } else {
+        log::warn!("WiFi failed after 5 attempts; will retry later");
     }
-    info!("WiFi associated, waiting for IP address...");
+
+    // Drop the BlockingWifi wrapper; the underlying EspWifi remains usable.
+    drop(blocking_wifi);
+
+    Ok(WifiResult {
+        wifi: Box::new(esp_wifi),
+        networks,
+        connected,
+        ip_address,
+    })
+}
+
+pub fn reconnect_existing(
+    wifi: &mut EspWifi<'static>,
+    sysloop: EspSystemEventLoop,
+) -> Result<ReconnectOutcome> {
+    let mut blocking_wifi = BlockingWifi::wrap(wifi, sysloop)?;
+    let _ = blocking_wifi.start();
+
+    let mut connected = false;
+    for attempt in 1..=5 {
+        let t0 = unsafe { esp_idf_sys::esp_timer_get_time() };
+        match blocking_wifi.connect() {
+            Ok(_) => {
+                let elapsed_ms = (unsafe { esp_idf_sys::esp_timer_get_time() } - t0) / 1000;
+                info!("WiFi reconnect OK on attempt {} ({}ms)", attempt, elapsed_ms);
+                log_wifi_diag(&format!("reconnect {} OK", attempt));
+                connected = true;
+                break;
+            }
+            Err(e) => {
+                let elapsed_ms = (unsafe { esp_idf_sys::esp_timer_get_time() } - t0) / 1000;
+                log::warn!(
+                    "WiFi reconnect attempt {}/5 failed after {}ms: {}",
+                    attempt, elapsed_ms, e
+                );
+                log_wifi_diag(&format!("reconnect {} FAIL", attempt));
+                if attempt < 5 {
+                    let _ = blocking_wifi.disconnect();
+                    blocking_wifi.stop().ok();
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    blocking_wifi.start().ok();
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
+            }
+        }
+    }
+
+    if !connected {
+        return Ok(None);
+    }
 
     blocking_wifi.wait_netif_up()?;
-
     let ip_info = blocking_wifi.wifi().sta_netif().get_ip_info()?;
-    info!("WiFi connected — IP: {}", ip_info.ip);
+    info!("WiFi reconnected — IP: {}", ip_info.ip);
 
-    // Scan for nearby networks (for wifi_scan display view) — done after
-    // connecting so it doesn't delay the connection or cause auth issues.
     info!("WiFi scanning for nearby networks...");
     let networks = match blocking_wifi.scan() {
         Ok(aps) => {
@@ -136,11 +212,5 @@ pub fn connect_wifi(
         }
     };
 
-    // Drop the BlockingWifi wrapper; the underlying EspWifi remains usable.
-    drop(blocking_wifi);
-
-    Ok(WifiResult {
-        wifi: Box::new(esp_wifi),
-        networks,
-    })
+    Ok(Some((ip_info.ip.to_string(), networks)))
 }

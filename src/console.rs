@@ -325,7 +325,7 @@ fn handle_wifi(
                     info!("wifi: no networks found");
                     return Ok(());
                 }
-                let max = count.min(20) as u16;
+                let max = count.min(20);
                 let mut records = vec![core::mem::zeroed::<esp_idf_sys::wifi_ap_record_t>(); max as usize];
                 let mut actual = max;
                 esp_idf_sys::esp_wifi_scan_get_ap_records(&mut actual, records.as_mut_ptr());

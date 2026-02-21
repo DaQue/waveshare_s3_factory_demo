@@ -47,6 +47,7 @@ const I2C_FREQ_HZ: u32 = 100_000;
 // ── Timing ──────────────────────────────────────────────────────────
 const WEATHER_INTERVAL_SECS: u64 = 600;
 const WEATHER_RETRY_SECS: u64 = 30;
+const WEATHER_STALE_AFTER_SECS: u64 = WEATHER_INTERVAL_SECS + 120;
 const ALERTS_INTERVAL_SECS: u64 = 180;
 const BME280_INTERVAL_MS: u32 = 5_000;
 const TICK_MS: u64 = 100;
@@ -58,6 +59,7 @@ const ORIENTATION_MAX_Z_G: f32 = 0.85;
 const ORIENTATION_MIN_AXIS_G: f32 = 0.62;
 const ORIENTATION_CONFIRM_SAMPLES: u8 = 4;
 const ORIENTATION_CHANGE_COOLDOWN_MS: u32 = 1_200;
+const WIFI_RETRY_INTERVAL_MS: u32 = 300_000;
 
 // ── FFI structs matching the C AXS15231B driver ────────────────────
 
@@ -570,34 +572,32 @@ fn main() -> Result<()> {
     // ── 9. WiFi ──
     let mut ip_address = String::new();
     let mut wifi_networks: Vec<(String, i8)> = Vec::new();
-    let wifi_ok;
-    let _wifi = if !wifi_ssid.is_empty() {
+    let mut wifi_ok = false;
+    let mut wifi_handle = if !wifi_ssid.is_empty() {
         draw_splash(&mut fb, &format!("Connecting to '{}'...", wifi_ssid));
         fb.flush_to_panel(ctx.io, ctx.panel, layout::Orientation::Landscape);
         info!("Connecting to WiFi '{}'...", wifi_ssid);
         match wifi::connect_wifi(peripherals.modem, sysloop.clone(), &wifi_ssid, &wifi_pass) {
             Ok(result) => {
-                if let Ok(ip_info) = result.wifi.sta_netif().get_ip_info() {
-                    ip_address = format!("{}", ip_info.ip);
+                if let Some(ip) = result.ip_address {
+                    ip_address = ip;
                 }
                 wifi_networks = result.networks;
-                wifi_ok = true;
+                wifi_ok = result.connected;
                 Some(result.wifi)
             }
             Err(e) => {
                 log::warn!("WiFi failed: {}", e);
-                wifi_ok = false;
                 None
             }
         }
     } else {
         log::warn!("No WiFi SSID configured (use console: wifi set <ssid> <pass>)");
-        wifi_ok = false;
         None
     };
 
     // ── 10. NTP time sync ──
-    let _sntp = if wifi_ok {
+    let mut sntp = if wifi_ok {
         draw_splash(&mut fb, "Syncing time...");
         fb.flush_to_panel(ctx.io, ctx.panel, layout::Orientation::Landscape);
         match time_sync::sync_time(&timezone) {
@@ -654,7 +654,7 @@ fn main() -> Result<()> {
         Arc::new(Mutex::new(None));
     let weather_refresh_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
-    if wifi_ok && !api_key.is_empty() {
+    if !api_key.is_empty() {
         let wd = weather_data.clone();
         let refresh = weather_refresh_flag.clone();
         let query = weather_query.clone();
@@ -704,7 +704,7 @@ fn main() -> Result<()> {
 
     // ── 12b. NWS alerts fetch thread ──
     let alert_data: Arc<Mutex<Option<Vec<weather::WeatherAlert>>>> = Arc::new(Mutex::new(None));
-    if wifi_ok {
+    {
         let ad = alert_data.clone();
         let cfg_alerts = cfg.clone();
         let nvs_alerts = nvs.clone();
@@ -769,8 +769,6 @@ fn main() -> Result<()> {
                 }
             })
             .expect("failed to spawn alerts thread");
-    } else {
-        info!("NWS alerts unavailable (WiFi not connected)");
     }
 
     // ── 13. Main event loop ──
@@ -780,6 +778,8 @@ fn main() -> Result<()> {
     let mut orientation_candidate = state.orientation;
     let mut orientation_candidate_count: u8 = 0;
     let mut last_orientation_change_ms: u32 = now_ms();
+    let mut last_wifi_retry_ms: u32 = now_ms();
+    let mut last_weather_success_ms: Option<u32> = None;
 
     // Initial draw
     views::draw_current_view(&mut fb, &state);
@@ -834,8 +834,19 @@ fn main() -> Result<()> {
                 state.current_weather = Some(current);
                 state.forecast = Some(forecast);
                 state.status_text = ip_address.clone();
+                state.weather_stale = false;
+                last_weather_success_ms = Some(t);
                 state.dirty = true;
             }
+        }
+
+        // Flag stale weather data when the last successful fetch is too old.
+        let stale = last_weather_success_ms
+            .map(|ts| t.wrapping_sub(ts) > (WEATHER_STALE_AFTER_SECS as u32 * 1000))
+            .unwrap_or(false);
+        if stale != state.weather_stale {
+            state.weather_stale = stale;
+            state.dirty = true;
         }
 
         // Check for alert data from background thread
@@ -964,6 +975,39 @@ fn main() -> Result<()> {
             weather_refresh_flag.store(true, Ordering::Relaxed);
             state.status_text = "Refreshing...".to_string();
             state.dirty = true;
+        }
+
+        // Retry WiFi association every 5 minutes while disconnected.
+        if !wifi_ok
+            && !wifi_ssid.is_empty()
+            && t.wrapping_sub(last_wifi_retry_ms) >= WIFI_RETRY_INTERVAL_MS
+        {
+            last_wifi_retry_ms = t;
+            if let Some(wifi) = wifi_handle.as_mut() {
+                info!("WiFi retry window reached; attempting reconnect...");
+                match wifi::reconnect_existing(wifi.as_mut(), sysloop.clone()) {
+                    Ok(Some((ip, networks))) => {
+                        wifi_ok = true;
+                        ip_address = ip;
+                        state.ip_address = ip_address.clone();
+                        state.status_text = ip_address.clone();
+                        state.wifi_networks = networks;
+                        if sntp.is_none() {
+                            match time_sync::sync_time(&timezone) {
+                                Ok(new_sntp) => sntp = Some(new_sntp),
+                                Err(e) => log::warn!("NTP sync failed after WiFi reconnect: {}", e),
+                            }
+                        }
+                        state.dirty = true;
+                    }
+                    Ok(None) => {
+                        info!("WiFi reconnect did not succeed; retrying in 5 minutes");
+                    }
+                    Err(e) => {
+                        log::warn!("WiFi reconnect error: {}", e);
+                    }
+                }
+            }
         }
 
         // WiFi debug logging (RSSI etc)
