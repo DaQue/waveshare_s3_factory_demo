@@ -60,6 +60,7 @@ const ORIENTATION_MIN_AXIS_G: f32 = 0.62;
 const ORIENTATION_CONFIRM_SAMPLES: u8 = 4;
 const ORIENTATION_CHANGE_COOLDOWN_MS: u32 = 1_200;
 const WIFI_RETRY_INTERVAL_MS: u32 = 300_000;
+const FAILURE_WARN_EVERY: u32 = 10;
 
 // ── FFI structs matching the C AXS15231B driver ────────────────────
 
@@ -664,6 +665,7 @@ fn main() -> Result<()> {
             .stack_size(16384)
             .spawn(move || {
                 let mut first = true;
+                let mut consecutive_failures: u32 = 0;
                 loop {
                     let verbose = first || crate::debug_flags::is_on(&crate::debug_flags::DEBUG_WEATHER);
                     if verbose {
@@ -679,10 +681,22 @@ fn main() -> Result<()> {
                                 );
                             }
                             first = false;
+                            consecutive_failures = 0;
                             *wd.lock().unwrap() = Some((current, forecast));
                         }
                         Err(e) => {
-                            log::warn!("Weather fetch failed: {}", e);
+                            consecutive_failures = consecutive_failures.saturating_add(1);
+                            if consecutive_failures == 1
+                                || consecutive_failures.is_multiple_of(FAILURE_WARN_EVERY)
+                            {
+                                log::warn!(
+                                    "Weather fetch failed ({} consecutive): {}",
+                                    consecutive_failures,
+                                    e
+                                );
+                            } else {
+                                info!("Weather fetch failed ({} consecutive)", consecutive_failures);
+                            }
                             std::thread::sleep(Duration::from_secs(WEATHER_RETRY_SECS));
                             continue;
                         }
@@ -712,6 +726,7 @@ fn main() -> Result<()> {
             .name("alerts".into())
             .stack_size(12288)
             .spawn(move || {
+                let mut consecutive_failures: u32 = 0;
                 loop {
                     let (enabled, auto_scope, scope, cached_zone, ua) = {
                         let c = cfg_alerts.lock().unwrap();
@@ -733,6 +748,7 @@ fn main() -> Result<()> {
                             match weather::discover_nws_zone(&ua) {
                                 Ok(zone) => {
                                     info!("NWS auto-scope discovered zone={}", zone);
+                                    consecutive_failures = 0;
                                     if let Ok(mut c) = cfg_alerts.lock() {
                                         c.nws_zone = zone.clone();
                                     }
@@ -742,7 +758,21 @@ fn main() -> Result<()> {
                                     format!("zone={}", zone)
                                 }
                                 Err(e) => {
-                                    log::warn!("NWS auto-scope discovery failed: {}", e);
+                                    consecutive_failures = consecutive_failures.saturating_add(1);
+                                    if consecutive_failures == 1
+                                        || consecutive_failures.is_multiple_of(FAILURE_WARN_EVERY)
+                                    {
+                                        log::warn!(
+                                            "NWS auto-scope discovery failed ({} consecutive): {}",
+                                            consecutive_failures,
+                                            e
+                                        );
+                                    } else {
+                                        info!(
+                                            "NWS auto-scope discovery failed ({} consecutive)",
+                                            consecutive_failures
+                                        );
+                                    }
                                     std::thread::sleep(Duration::from_secs(60));
                                     continue;
                                 }
@@ -757,12 +787,24 @@ fn main() -> Result<()> {
                     match weather::fetch_nws_alerts(&effective_scope, &ua) {
                         Ok(alerts) => {
                             let count = alerts.len();
+                            consecutive_failures = 0;
                             *ad.lock().unwrap() = Some(alerts);
                             info!("NWS alerts: {} active", count);
                             std::thread::sleep(Duration::from_secs(ALERTS_INTERVAL_SECS));
                         }
                         Err(e) => {
-                            log::warn!("NWS alerts fetch failed: {}", e);
+                            consecutive_failures = consecutive_failures.saturating_add(1);
+                            if consecutive_failures == 1
+                                || consecutive_failures.is_multiple_of(FAILURE_WARN_EVERY)
+                            {
+                                log::warn!(
+                                    "NWS alerts fetch failed ({} consecutive): {}",
+                                    consecutive_failures,
+                                    e
+                                );
+                            } else {
+                                info!("NWS alerts fetch failed ({} consecutive)", consecutive_failures);
+                            }
                             std::thread::sleep(Duration::from_secs(WEATHER_RETRY_SECS));
                         }
                     }

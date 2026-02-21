@@ -36,7 +36,7 @@ pub fn https_get_with_headers(url: &str, headers: &[(&str, &str)]) -> Result<Str
         bail!("HTTP error: status {}", status);
     }
 
-    let mut body = Vec::with_capacity(8192);
+    let mut body: Vec<u8> = Vec::new();
     let mut buf = [0u8; 1024];
     let mut reader = request;
     loop {
