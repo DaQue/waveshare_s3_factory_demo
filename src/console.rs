@@ -16,10 +16,21 @@ pub fn spawn_console(nvs: Arc<Mutex<EspNvs<NvsDefault>>>, config: Arc<Mutex<Conf
             let mut reader = stdin.lock();
             let mut line = String::new();
             let mut buf = [0u8; 1];
+            let mut in_escape = false;
             loop {
                 match reader.read(&mut buf) {
                     Ok(1) => {
                         let ch = buf[0];
+                        if in_escape {
+                            if (ch as char).is_ascii_alphabetic() || ch == b'~' {
+                                in_escape = false;
+                            }
+                            continue;
+                        }
+                        if ch == 0x1b {
+                            in_escape = true;
+                            continue;
+                        }
                         if ch == b'\n' || ch == b'\r' {
                             if line.is_empty() {
                                 continue;
@@ -52,7 +63,11 @@ fn process_line(
     nvs: &Arc<Mutex<EspNvs<NvsDefault>>>,
     config: &Arc<Mutex<Config>>,
 ) -> Result<()> {
-    let mut parts = line.splitn(3, char::is_whitespace);
+    let clean = line.trim().trim_end_matches('\\');
+    if clean.is_empty() {
+        return Ok(());
+    }
+    let mut parts = clean.splitn(3, char::is_whitespace);
     let cmd = parts.next().unwrap_or("");
     let sub = parts.next().unwrap_or("");
     let rest = parts.next().unwrap_or("").trim();
@@ -61,6 +76,8 @@ fn process_line(
         "help" | "?" => print_help(),
         "wifi" => handle_wifi(sub, rest, nvs, config)?,
         "api" => handle_api(sub, rest, nvs, config)?,
+        "alerts" => handle_alerts(sub, rest, nvs, config)?,
+        "flash" => handle_flash(sub, rest, nvs, config)?,
         "orientation" => handle_orientation(sub, rest, nvs, config)?,
         "i2c" => handle_i2c(sub),
         "imu" => handle_imu(sub),
@@ -70,6 +87,10 @@ fn process_line(
             info!("wifi: {}", if cfg.wifi_ssid.is_empty() { "not configured" } else { &cfg.wifi_ssid });
             info!("api key: {} chars", cfg.weather_api_key.len());
             info!("query: {}", cfg.weather_query);
+            info!("flash time: {}", cfg.flash_time);
+            info!("alerts enabled: {}", cfg.alerts_enabled);
+            info!("alerts scope: {}", cfg.nws_scope);
+            info!("alerts ua: {}", cfg.nws_user_agent);
             info!("orientation: {}", cfg.orientation_mode.as_str());
             info!("orientation flip: {}", if cfg.orientation_flip { "on" } else { "off" });
             let heap_kb = unsafe { esp_idf_sys::esp_get_free_heap_size() } / 1024;
@@ -100,6 +121,12 @@ fn print_help() {
     info!("  api set-key <key>          - set OpenWeather API key");
     info!("  api set-query <query>      - set location query");
     info!("  api clear                  - clear API overrides");
+    info!("  alerts show                - show alert settings");
+    info!("  alerts on|off              - enable/disable NWS alerts");
+    info!("  alerts ua <user-agent>     - set NWS User-Agent");
+    info!("  alerts scope <scope>       - set NWS scope (example: state=MO)");
+    info!("  flash show                 - show flash metadata");
+    info!("  flash set-time <text>      - set flash time metadata");
     info!("  orientation auto|landscape|portrait");
     info!("  orientation flip on|off|toggle|show");
     info!("  debug <module>             - toggle debug for module");
@@ -377,6 +404,85 @@ fn handle_api(
             info!("API overrides cleared (defaults restored)");
         }
         _ => print_help(),
+    }
+    Ok(())
+}
+
+fn handle_alerts(
+    sub: &str,
+    rest: &str,
+    nvs: &Arc<Mutex<EspNvs<NvsDefault>>>,
+    config: &Arc<Mutex<Config>>,
+) -> Result<()> {
+    match sub {
+        "" | "show" => {
+            let cfg = config.lock().unwrap();
+            info!("alerts enabled: {}", cfg.alerts_enabled);
+            info!("alerts scope: {}", cfg.nws_scope);
+            info!("alerts ua: {}", cfg.nws_user_agent);
+        }
+        "on" | "enable" | "enabled" => {
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_alerts_enabled(&mut nvs, true)?;
+            config.lock().unwrap().alerts_enabled = true;
+            info!("alerts enabled");
+        }
+        "off" | "disable" | "disabled" => {
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_alerts_enabled(&mut nvs, false)?;
+            config.lock().unwrap().alerts_enabled = false;
+            info!("alerts disabled");
+        }
+        "ua" => {
+            let ua = rest.trim().trim_matches('"').trim_matches('\'');
+            if ua.is_empty() {
+                info!("usage: alerts ua <user-agent>");
+                return Ok(());
+            }
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_nws_user_agent(&mut nvs, ua)?;
+            config.lock().unwrap().nws_user_agent = ua.to_string();
+            info!("alerts ua saved");
+        }
+        "scope" => {
+            let scope = rest.trim().trim_matches('"').trim_matches('\'');
+            if scope.is_empty() {
+                info!("usage: alerts scope <scope>");
+                return Ok(());
+            }
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_nws_scope(&mut nvs, scope)?;
+            config.lock().unwrap().nws_scope = scope.to_string();
+            info!("alerts scope saved: {}", scope);
+        }
+        _ => info!("usage: alerts show|on|off|ua <user-agent>|scope <scope>"),
+    }
+    Ok(())
+}
+
+fn handle_flash(
+    sub: &str,
+    rest: &str,
+    nvs: &Arc<Mutex<EspNvs<NvsDefault>>>,
+    config: &Arc<Mutex<Config>>,
+) -> Result<()> {
+    match sub {
+        "" | "show" => {
+            let cfg = config.lock().unwrap();
+            info!("flash time: {}", cfg.flash_time);
+        }
+        "set-time" => {
+            let flash_time = rest.trim().trim_matches('"').trim_matches('\'');
+            if flash_time.is_empty() {
+                info!("usage: flash set-time <text>");
+                return Ok(());
+            }
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_flash_time(&mut nvs, flash_time)?;
+            config.lock().unwrap().flash_time = flash_time.to_string();
+            info!("flash time saved: {}", flash_time);
+        }
+        _ => info!("usage: flash show|set-time <text>"),
     }
     Ok(())
 }

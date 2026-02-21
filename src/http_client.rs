@@ -6,6 +6,11 @@ const TIMEOUT_MS: u64 = 15_000;
 
 /// Perform an HTTPS GET request and return the response body as a String.
 pub fn https_get(url: &str) -> Result<String> {
+    https_get_with_headers(url, &[])
+}
+
+/// Perform an HTTPS GET request with custom headers and return body as String.
+pub fn https_get_with_headers(url: &str, headers: &[(&str, &str)]) -> Result<String> {
     let config = Configuration {
         timeout: Some(std::time::Duration::from_millis(TIMEOUT_MS)),
         use_global_ca_store: true,
@@ -16,9 +21,10 @@ pub fn https_get(url: &str) -> Result<String> {
     let connection = EspHttpConnection::new(&config)?;
 
     use embedded_svc::http::client::Client;
+    use embedded_svc::http::Method;
     let mut client = Client::wrap(connection);
 
-    let request = client.get(url)?.submit()?;
+    let request = client.request(Method::Get, url, headers)?.submit()?;
 
     let status = request.status();
     info!("HTTP GET {} -> status {}", url.chars().take(80).collect::<String>(), status);

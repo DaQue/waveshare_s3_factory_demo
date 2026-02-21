@@ -69,6 +69,8 @@ pub struct AppState {
     pub forecast_hourly_open: bool,
     pub forecast_hourly_day: usize,
     pub forecast_hourly_scroll: usize,
+    pub weather_alerts: Vec<crate::weather::WeatherAlert>,
+    pub now_alerts_open: bool,
     pub use_celsius: bool,
     pub save_celsius_pref: bool,
     pub force_weather_refresh: bool,
@@ -99,6 +101,8 @@ impl AppState {
             forecast_hourly_open: false,
             forecast_hourly_day: 0,
             forecast_hourly_scroll: 0,
+            weather_alerts: Vec::new(),
+            now_alerts_open: false,
             use_celsius: false,
             save_celsius_pref: false,
             force_weather_refresh: false,
@@ -201,7 +205,11 @@ impl AppState {
                 _ => (10, 120, 36, 150),
             };
             if (icon_x0..=icon_x1).contains(&x) && (icon_y0..=icon_y1).contains(&y) {
-                self.force_weather_refresh = true;
+                if self.weather_alerts.is_empty() {
+                    self.force_weather_refresh = true;
+                } else {
+                    self.now_alerts_open = !self.now_alerts_open;
+                }
                 self.dirty = true;
                 return true;
             }

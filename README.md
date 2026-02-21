@@ -64,7 +64,7 @@ Trial Flow
 Notes
 -----
 - USB-Serial-JTAG is used for input, not UART0.
-- `sdkconfig.defaults` sets `CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384`.
+- Main task stack is configured as `CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768`.
 
 Troubleshooting
 ---------------
@@ -101,3 +101,38 @@ Behavior Notes
 - `orientation flip ...` is available only when locked to `landscape` or `portrait`.
 - In `auto` mode, `orientation flip` prints a guidance message and does not apply.
 - Orientation mode and flip are persisted in NVS and survive reboot.
+
+NWS Alerts (Current)
+--------------------
+- The firmware can poll active NWS alerts from `api.weather.gov`.
+- NWS calls include required headers:
+  - `User-Agent`
+  - `Accept: application/geo+json`
+- Current scope defaults to `area=MO`.
+- Backward compatibility: `state=XX` is accepted in config and auto-normalized to `area=XX`.
+- Alerts config is persisted in NVS:
+  - `alerts_enabled`
+  - `nws_user_agent`
+  - `nws_scope`
+  - `flash_time` metadata
+- Alert config changes from console apply at runtime (no reboot required).
+
+Console Commands for Alerts / Metadata
+--------------------------------------
+- `alerts show`
+- `alerts on`
+- `alerts off`
+- `alerts ua <user-agent>`
+- `alerts scope <scope>` (example: `area=MO`, `zone=MOZ061`)
+- `flash show`
+- `flash set-time <text>`
+
+Now View Alert UX
+-----------------
+- Status text color reflects top alert class:
+  - Warning: red
+  - Watch: yellow
+  - Advisory: amber
+- Tapping weather icon:
+  - No alerts: weather refresh
+  - Alerts present: open/close alert details overlay

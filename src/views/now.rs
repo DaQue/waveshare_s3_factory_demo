@@ -7,6 +7,7 @@ use profont::{PROFONT_10_POINT, PROFONT_12_POINT, PROFONT_14_POINT, PROFONT_24_P
 
 use crate::framebuffer::Framebuffer;
 use crate::layout::*;
+use crate::weather::AlertKind;
 use crate::views::AppState;
 
 fn f_to_c(f: f32) -> f32 {
@@ -24,6 +25,8 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         .draw(fb)
         .ok();
 
+    let top_alert_kind = state.weather_alerts.first().map(|a| a.kind());
+
     if let Some(cw) = &state.current_weather {
         let city_text = format!("{}, {}", cw.city, cw.country);
         Text::with_alignment(
@@ -36,7 +39,13 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         .ok();
     }
 
-    let status_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_STATUS);
+    let status_color = match top_alert_kind {
+        Some(AlertKind::Warning) => rgb(255, 90, 90),
+        Some(AlertKind::Watch) => rgb(255, 225, 80),
+        Some(AlertKind::Advisory) => rgb(255, 180, 80),
+        _ => TEXT_STATUS,
+    };
+    let status_style = MonoTextStyle::new(&PROFONT_10_POINT, status_color);
     Text::with_alignment(
         &state.status_text,
         Point::new(screen_w - 8, 24),
@@ -88,12 +97,22 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
         if state.orientation.is_portrait() {
             Text::new(&stats_text, Point::new(18, card_top + 124), stats_style).draw(fb).ok();
-            Text::new("(tap temp = F/C)   (tap icon = refresh)", Point::new(18, card_top + 144), hint_style)
+            let hint = if state.weather_alerts.is_empty() {
+                "(tap temp = F/C)   (tap icon = refresh)"
+            } else {
+                "(tap temp = F/C)   (tap icon = alerts)"
+            };
+            Text::new(hint, Point::new(18, card_top + 144), hint_style)
                 .draw(fb)
                 .ok();
         } else {
             Text::new(&stats_text, Point::new(18, card_top + 120), stats_style).draw(fb).ok();
-            Text::new("(tap temp = F/C)   (tap icon = refresh)", Point::new(18, card_top + 138), hint_style)
+            let hint = if state.weather_alerts.is_empty() {
+                "(tap temp = F/C)   (tap icon = refresh)"
+            } else {
+                "(tap temp = F/C)   (tap icon = alerts)"
+            };
+            Text::new(hint, Point::new(18, card_top + 138), hint_style)
                 .draw(fb)
                 .ok();
         }
@@ -192,6 +211,10 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         }
     }
 
+    if state.now_alerts_open {
+        draw_alert_overlay(fb, state, screen_w, screen_h);
+    }
+
     // Bottom hint
     let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
     Text::with_alignment(
@@ -202,4 +225,49 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     )
     .draw(fb)
     .ok();
+}
+
+fn draw_alert_overlay(fb: &mut Framebuffer, state: &AppState, screen_w: i32, screen_h: i32) {
+    if state.weather_alerts.is_empty() {
+        return;
+    }
+    let alert = &state.weather_alerts[0];
+    let (fill, border, title_color) = match alert.kind() {
+        AlertKind::Warning => (rgb(60, 12, 12), rgb(180, 40, 40), rgb(255, 130, 130)),
+        AlertKind::Watch => (rgb(60, 52, 12), rgb(180, 150, 32), rgb(255, 230, 120)),
+        AlertKind::Advisory => (rgb(60, 36, 12), rgb(190, 110, 40), rgb(255, 200, 110)),
+        AlertKind::Other => (rgb(18, 24, 36), rgb(63, 75, 95), TEXT_PRIMARY),
+    };
+    let y = if state.orientation.is_portrait() { 224 } else { 190 };
+    let h = screen_h - y - 8;
+    draw_card(fb, CARD_MARGIN, y, screen_w - 2 * CARD_MARGIN, h, 10, fill, border, 1);
+
+    let title_style = MonoTextStyle::new(&PROFONT_14_POINT, title_color);
+    let body_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_PRIMARY);
+    let dim_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
+
+    let count_text = if state.weather_alerts.len() > 1 {
+        format!("{} ({} active)", alert.kind().as_str(), state.weather_alerts.len())
+    } else {
+        alert.kind().as_str().to_string()
+    };
+    Text::new(&count_text, Point::new(CARD_MARGIN + 8, y + 14), title_style).draw(fb).ok();
+    Text::new(&alert.event, Point::new(CARD_MARGIN + 8, y + 30), body_style).draw(fb).ok();
+
+    let headline = if alert.headline.len() > 46 {
+        format!("{}...", &alert.headline[..43])
+    } else {
+        alert.headline.clone()
+    };
+    Text::new(&headline, Point::new(CARD_MARGIN + 8, y + 44), body_style).draw(fb).ok();
+
+    let expires = if alert.expires.len() > 34 {
+        format!("exp {}", &alert.expires[..30])
+    } else {
+        format!("exp {}", alert.expires)
+    };
+    Text::new(&expires, Point::new(CARD_MARGIN + 8, y + h - 18), dim_style).draw(fb).ok();
+    Text::new("(tap icon to close)", Point::new(screen_w - CARD_MARGIN - 8, y + h - 18), dim_style)
+        .draw(fb)
+        .ok();
 }

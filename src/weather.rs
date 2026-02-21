@@ -60,6 +60,45 @@ pub struct Forecast {
     pub preview_text: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertKind {
+    Warning,
+    Watch,
+    Advisory,
+    Other,
+}
+
+impl AlertKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AlertKind::Warning => "Warning",
+            AlertKind::Watch => "Watch",
+            AlertKind::Advisory => "Advisory",
+            AlertKind::Other => "Alert",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct WeatherAlert {
+    pub id: String,
+    pub event: String,
+    pub headline: String,
+    pub expires: String,
+    pub description: String,
+    pub instruction: String,
+    pub severity: String,
+    pub certainty: String,
+    pub urgency: String,
+}
+
+impl WeatherAlert {
+    pub fn kind(&self) -> AlertKind {
+        classify_alert_kind(&self.event)
+    }
+}
+
 // ── OWM JSON structures ─────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -115,6 +154,30 @@ struct OwmCity {
     timezone: Option<i32>,
 }
 
+#[derive(Deserialize)]
+struct NwsAlertsRoot {
+    features: Option<Vec<NwsFeature>>,
+}
+
+#[derive(Deserialize)]
+struct NwsFeature {
+    id: Option<String>,
+    properties: Option<NwsProperties>,
+}
+
+#[derive(Deserialize)]
+struct NwsProperties {
+    event: Option<String>,
+    headline: Option<String>,
+    expires: Option<String>,
+    ends: Option<String>,
+    description: Option<String>,
+    instruction: Option<String>,
+    severity: Option<String>,
+    certainty: Option<String>,
+    urgency: Option<String>,
+}
+
 // ── Icon mapping (matches C factory exactly) ────────────────────────
 
 pub fn map_condition_to_icon(weather_id: i32, _icon_code: &str) -> WeatherIcon {
@@ -158,6 +221,19 @@ fn format_hour_label(hour24: i32) -> String {
     let hour12 = if hour24 % 12 == 0 { 12 } else { hour24 % 12 };
     let ampm = if hour24 >= 12 { "PM" } else { "AM" };
     format!("{}{}", hour12, ampm)
+}
+
+fn classify_alert_kind(event: &str) -> AlertKind {
+    let e = event.to_ascii_lowercase();
+    if e.contains("warning") {
+        AlertKind::Warning
+    } else if e.contains("watch") {
+        AlertKind::Watch
+    } else if e.contains("advisory") {
+        AlertKind::Advisory
+    } else {
+        AlertKind::Other
+    }
 }
 
 // ── Parsing ─────────────────────────────────────────────────────────
@@ -412,4 +488,57 @@ pub fn fetch_weather(
     let forecast = parse_forecast(&forecast_json)?;
 
     Ok((current, forecast))
+}
+
+pub fn parse_nws_alerts(json: &str) -> Result<Vec<WeatherAlert>> {
+    let root: NwsAlertsRoot = serde_json::from_str(json)?;
+    let mut out = Vec::new();
+    for feature in root.features.unwrap_or_default() {
+        let props = match feature.properties {
+            Some(p) => p,
+            None => continue,
+        };
+        let event = props.event.unwrap_or_else(|| "Unknown Alert".to_string());
+        let headline = props.headline.unwrap_or_else(|| event.clone());
+        let expires = props.expires.or(props.ends).unwrap_or_else(|| "unknown".to_string());
+        out.push(WeatherAlert {
+            id: feature.id.unwrap_or_default(),
+            event,
+            headline,
+            expires,
+            description: props.description.unwrap_or_default(),
+            instruction: props.instruction.unwrap_or_default(),
+            severity: props.severity.unwrap_or_default(),
+            certainty: props.certainty.unwrap_or_default(),
+            urgency: props.urgency.unwrap_or_default(),
+        });
+    }
+
+    // Put warnings first, then watches, then advisories.
+    out.sort_by_key(|a| match a.kind() {
+        AlertKind::Warning => 0,
+        AlertKind::Watch => 1,
+        AlertKind::Advisory => 2,
+        AlertKind::Other => 3,
+    });
+    Ok(out)
+}
+
+pub fn fetch_nws_alerts(scope: &str, user_agent: &str) -> Result<Vec<WeatherAlert>> {
+    let mut scope = scope.trim().to_string();
+    if let Some(rest) = scope.strip_prefix("state=") {
+        scope = format!("area={}", rest);
+    }
+    let url = if scope.is_empty() {
+        "https://api.weather.gov/alerts/active".to_string()
+    } else {
+        format!("https://api.weather.gov/alerts/active?{}", scope)
+    };
+    let headers = [
+        ("User-Agent", user_agent),
+        ("Accept", "application/geo+json"),
+    ];
+    info!("Fetching NWS alerts...");
+    let json = crate::http_client::https_get_with_headers(&url, &headers)?;
+    parse_nws_alerts(&json)
 }

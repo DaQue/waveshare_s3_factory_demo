@@ -47,6 +47,7 @@ const I2C_FREQ_HZ: u32 = 100_000;
 // ── Timing ──────────────────────────────────────────────────────────
 const WEATHER_INTERVAL_SECS: u64 = 600;
 const WEATHER_RETRY_SECS: u64 = 30;
+const ALERTS_INTERVAL_SECS: u64 = 180;
 const BME280_INTERVAL_MS: u32 = 5_000;
 const TICK_MS: u64 = 100;
 const TIME_UPDATE_TICKS: u32 = 10; // every second
@@ -660,6 +661,43 @@ fn main() -> Result<()> {
         log::warn!("No weather API key (use console: api set-key <key>)");
     }
 
+    // ── 12b. NWS alerts fetch thread ──
+    let alert_data: Arc<Mutex<Option<Vec<weather::WeatherAlert>>>> = Arc::new(Mutex::new(None));
+    if wifi_ok {
+        let ad = alert_data.clone();
+        let cfg_alerts = cfg.clone();
+        std::thread::Builder::new()
+            .name("alerts".into())
+            .stack_size(12288)
+            .spawn(move || {
+                loop {
+                    let (enabled, scope, ua) = {
+                        let c = cfg_alerts.lock().unwrap();
+                        (c.alerts_enabled, c.nws_scope.clone(), c.nws_user_agent.clone())
+                    };
+                    if !enabled {
+                        std::thread::sleep(Duration::from_secs(5));
+                        continue;
+                    }
+                    match weather::fetch_nws_alerts(&scope, &ua) {
+                        Ok(alerts) => {
+                            let count = alerts.len();
+                            *ad.lock().unwrap() = Some(alerts);
+                            info!("NWS alerts: {} active", count);
+                            std::thread::sleep(Duration::from_secs(ALERTS_INTERVAL_SECS));
+                        }
+                        Err(e) => {
+                            log::warn!("NWS alerts fetch failed: {}", e);
+                            std::thread::sleep(Duration::from_secs(WEATHER_RETRY_SECS));
+                        }
+                    }
+                }
+            })
+            .expect("failed to spawn alerts thread");
+    } else {
+        info!("NWS alerts unavailable (WiFi not connected)");
+    }
+
     // ── 13. Main event loop ──
     info!("Entering main loop");
     let mut last_bme_ms: u32 = 0;
@@ -720,6 +758,17 @@ fn main() -> Result<()> {
                 state.current_weather = Some(current);
                 state.forecast = Some(forecast);
                 state.status_text = ip_address.clone();
+                state.dirty = true;
+            }
+        }
+
+        // Check for alert data from background thread
+        if let Ok(mut ad) = alert_data.try_lock() {
+            if let Some(alerts) = ad.take() {
+                state.weather_alerts = alerts;
+                if state.weather_alerts.is_empty() {
+                    state.now_alerts_open = false;
+                }
                 state.dirty = true;
             }
         }
