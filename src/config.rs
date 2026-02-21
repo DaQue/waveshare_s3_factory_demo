@@ -25,7 +25,8 @@ const DEFAULT_WX_API_KEY: &str = "YOUR_API_KEY_HERE";
 const DEFAULT_WEATHER_QUERY: &str = "zip=00000,US";
 const DEFAULT_TIMEZONE: &str = "CST6CDT,M3.2.0,M11.1.0";
 const DEFAULT_FLASH_TIME: &str = "unknown";
-const DEFAULT_NWS_USER_AGENT: &str = "waveshare_s3_3p/0.1 (contact: unset)";
+const DEFAULT_NWS_USER_AGENT: &str =
+    concat!("waveshare_s3_3p/", env!("CARGO_PKG_VERSION"), " (contact: unset)");
 const DEFAULT_NWS_SCOPE: &str = "area=MO";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

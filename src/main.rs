@@ -511,8 +511,22 @@ fn main() -> Result<()> {
     let nvs_partition = EspDefaultNvsPartition::take()?;
 
     // ── 4. NVS config ──
-    let nvs = EspNvs::new(nvs_partition.clone(), config::NS, true)?;
-    let cfg = config::Config::load(&nvs);
+    let mut nvs = EspNvs::new(nvs_partition.clone(), config::NS, true)?;
+    let mut cfg = config::Config::load(&nvs);
+    let legacy_nws_ua = "waveshare_s3_3p/0.1 (contact: unset)";
+    let default_nws_ua = format!(
+        "waveshare_s3_3p/{} (contact: unset)",
+        env!("CARGO_PKG_VERSION")
+    );
+    if cfg.nws_user_agent == legacy_nws_ua {
+        match config::Config::save_nws_user_agent(&mut nvs, &default_nws_ua) {
+            Ok(()) => {
+                cfg.nws_user_agent = default_nws_ua.clone();
+                info!("Migrated NWS User-Agent default to {}", cfg.nws_user_agent);
+            }
+            Err(e) => log::warn!("Failed to migrate NWS User-Agent default: {}", e),
+        }
+    }
     let wifi_ssid = cfg.wifi_ssid.clone();
     let wifi_pass = cfg.wifi_pass.clone();
     let api_key = cfg.weather_api_key.clone();
