@@ -22,8 +22,8 @@ const LCD_OPCODE_WRITE_CMD: u32 = 0x02;
 const LCD_CMD_RASET: u32 = 0x2B;
 
 /// RGB565 framebuffer backed by a PSRAM allocation.
-/// Renders in landscape (480x320) and flushes with 90° CW rotation
-/// to the native portrait (320x480) panel.
+/// Supports landscape (480x320, rotated on flush) and portrait
+/// (320x480, direct flush) logical rendering.
 pub struct Framebuffer {
     buf: *mut u16,
     len: usize,
@@ -80,10 +80,39 @@ impl Framebuffer {
     }
 
     /// Flush the landscape framebuffer to the portrait panel with 90° CW rotation.
-    ///
-    /// Rotation mapping: panel pixel (px, py) reads from
-    /// framebuffer pixel (lx=py, ly=fb_height-1-px).
     pub fn flush_to_panel(
+        &self,
+        io: esp_idf_sys::esp_lcd_panel_io_handle_t,
+        panel: esp_idf_sys::esp_lcd_panel_handle_t,
+        orientation: crate::layout::Orientation,
+    ) {
+        let (need_w, need_h) = if orientation.is_landscape() {
+            (480, 320)
+        } else {
+            (320, 480)
+        };
+        assert!(
+            self.width == need_w && self.height == need_h,
+            "framebuffer {}x{} does not match orientation {:?} expected {}x{}",
+            self.width,
+            self.height,
+            orientation,
+            need_w,
+            need_h
+        );
+        match orientation {
+            crate::layout::Orientation::Landscape => self.flush_landscape_rotated(io, panel),
+            crate::layout::Orientation::LandscapeFlipped => {
+                self.flush_landscape_rotated_flipped(io, panel)
+            }
+            crate::layout::Orientation::Portrait => self.flush_portrait_direct(io, panel),
+            crate::layout::Orientation::PortraitFlipped => {
+                self.flush_portrait_direct_flipped(io, panel)
+            }
+        }
+    }
+
+    fn flush_landscape_rotated(
         &self,
         io: esp_idf_sys::esp_lcd_panel_io_handle_t,
         panel: esp_idf_sys::esp_lcd_panel_handle_t,
@@ -93,23 +122,22 @@ impl Framebuffer {
         };
         let fb = self.as_slice();
         let fb_w = self.width as usize;
-        let fb_h = self.height as usize; // 320
+        let fb_h = self.height as usize;
 
-        let pw = PANEL_WIDTH as i32;  // 320
-        let ph = PANEL_HEIGHT as i32; // 480
+        let pw = PANEL_WIDTH as i32;
+        let ph = PANEL_HEIGHT as i32;
 
         let mut py = 0i32;
         while py < ph {
             let py_end = (py + CHUNK_LINES).min(ph);
             let _rows = (py_end - py) as usize;
 
-            // Fill DMA buffer with rotated pixels (big-endian RGB565)
+            // panel(px, py) <- fb(py, fb_h-1-px)
             let mut di = 0usize;
             for row in py..py_end {
                 for px in 0..pw {
-                    // 90° CW: panel(px, py) ← fb(py, fb_h-1-px)
-                    let lx = row as usize;       // py maps to fb x
-                    let ly = fb_h - 1 - px as usize; // panel x maps to reversed fb y
+                    let lx = row as usize;
+                    let ly = fb_h - 1 - px as usize;
                     let pixel = fb[ly * fb_w + lx];
                     dma_slice[di] = (pixel >> 8) as u8;
                     dma_slice[di + 1] = (pixel & 0xFF) as u8;
@@ -130,6 +158,138 @@ impl Framebuffer {
                 );
             }
 
+            py = py_end;
+        }
+    }
+
+    fn flush_portrait_direct(
+        &self,
+        io: esp_idf_sys::esp_lcd_panel_io_handle_t,
+        panel: esp_idf_sys::esp_lcd_panel_handle_t,
+    ) {
+        let dma_slice = unsafe { core::slice::from_raw_parts_mut(self.dma_buf, self.dma_bytes) };
+        let fb = self.as_slice();
+        let pw = PANEL_WIDTH as i32;
+        let ph = PANEL_HEIGHT as i32;
+        let fb_w = self.width as usize;
+
+        let mut py = 0i32;
+        while py < ph {
+            let py_end = (py + CHUNK_LINES).min(ph);
+
+            let mut di = 0usize;
+            for row in py..py_end {
+                let row_start = row as usize * fb_w;
+                for px in 0..pw {
+                    let pixel = fb[row_start + px as usize];
+                    dma_slice[di] = (pixel >> 8) as u8;
+                    dma_slice[di + 1] = (pixel & 0xFF) as u8;
+                    di += 2;
+                }
+            }
+
+            send_raset(io, py, py_end);
+
+            unsafe {
+                esp_idf_sys::esp_lcd_panel_draw_bitmap(
+                    panel,
+                    0,
+                    py,
+                    pw,
+                    py_end,
+                    dma_slice.as_ptr().cast(),
+                );
+            }
+
+            py = py_end;
+        }
+    }
+
+    fn flush_portrait_direct_flipped(
+        &self,
+        io: esp_idf_sys::esp_lcd_panel_io_handle_t,
+        panel: esp_idf_sys::esp_lcd_panel_handle_t,
+    ) {
+        let dma_slice = unsafe { core::slice::from_raw_parts_mut(self.dma_buf, self.dma_bytes) };
+        let fb = self.as_slice();
+        let pw = PANEL_WIDTH as i32;
+        let ph = PANEL_HEIGHT as i32;
+        let fb_w = self.width as usize;
+
+        let mut py = 0i32;
+        while py < ph {
+            let py_end = (py + CHUNK_LINES).min(ph);
+
+            let mut di = 0usize;
+            for row in py..py_end {
+                let src_y = (ph - 1 - row) as usize;
+                let row_start = src_y * fb_w;
+                for px in 0..pw {
+                    let src_x = (pw - 1 - px) as usize;
+                    let pixel = fb[row_start + src_x];
+                    dma_slice[di] = (pixel >> 8) as u8;
+                    dma_slice[di + 1] = (pixel & 0xFF) as u8;
+                    di += 2;
+                }
+            }
+
+            send_raset(io, py, py_end);
+
+            unsafe {
+                esp_idf_sys::esp_lcd_panel_draw_bitmap(
+                    panel,
+                    0,
+                    py,
+                    pw,
+                    py_end,
+                    dma_slice.as_ptr().cast(),
+                );
+            }
+
+            py = py_end;
+        }
+    }
+
+    fn flush_landscape_rotated_flipped(
+        &self,
+        io: esp_idf_sys::esp_lcd_panel_io_handle_t,
+        panel: esp_idf_sys::esp_lcd_panel_handle_t,
+    ) {
+        let dma_slice = unsafe { core::slice::from_raw_parts_mut(self.dma_buf, self.dma_bytes) };
+        let fb = self.as_slice();
+        let fb_w = self.width as usize;
+        let _fb_h = self.height as usize;
+        let pw = PANEL_WIDTH as i32;
+        let ph = PANEL_HEIGHT as i32;
+
+        let mut py = 0i32;
+        while py < ph {
+            let py_end = (py + CHUNK_LINES).min(ph);
+
+            // panel(px,py) <- fb(fb_w-1-py, px)
+            let mut di = 0usize;
+            for row in py..py_end {
+                for px in 0..pw {
+                    let lx = fb_w - 1 - row as usize;
+                    let ly = px as usize;
+                    let pixel = fb[ly * fb_w + lx];
+                    dma_slice[di] = (pixel >> 8) as u8;
+                    dma_slice[di + 1] = (pixel & 0xFF) as u8;
+                    di += 2;
+                }
+            }
+
+            send_raset(io, py, py_end);
+            unsafe {
+                esp_idf_sys::esp_lcd_panel_draw_bitmap(
+                    panel,
+                    0,
+                    py,
+                    pw,
+                    py_end,
+                    dma_slice.as_ptr().cast(),
+                );
+            }
             py = py_end;
         }
     }

@@ -10,12 +10,40 @@ const KEY_WX_API_KEY: &str = "wx_api_key";
 const KEY_WX_QUERY: &str = "wx_query";
 const KEY_TIMEZONE: &str = "timezone";
 const KEY_USE_CELSIUS: &str = "use_celsius";
+const KEY_ORIENTATION: &str = "orientation";
+const KEY_ORIENTATION_FLIP: &str = "ori_flip";
 
 const DEFAULT_WIFI_SSID: &str = "YOUR_WIFI_SSID";
 const DEFAULT_WIFI_PASS: &str = "A7MZLB2nCuvUqIrpBQB";
 const DEFAULT_WX_API_KEY: &str = "YOUR_API_KEY_HERE";
 const DEFAULT_WEATHER_QUERY: &str = "zip=00000,US";
 const DEFAULT_TIMEZONE: &str = "CST6CDT,M3.2.0,M11.1.0";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrientationMode {
+    Auto,
+    Landscape,
+    Portrait,
+}
+
+impl OrientationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OrientationMode::Auto => "auto",
+            OrientationMode::Landscape => "landscape",
+            OrientationMode::Portrait => "portrait",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(OrientationMode::Auto),
+            "landscape" => Some(OrientationMode::Landscape),
+            "portrait" => Some(OrientationMode::Portrait),
+            _ => None,
+        }
+    }
+}
 
 pub struct Config {
     pub wifi_ssid: String,
@@ -24,6 +52,8 @@ pub struct Config {
     pub weather_query: String,
     pub timezone: String,
     pub use_celsius: bool,
+    pub orientation_mode: OrientationMode,
+    pub orientation_flip: bool,
 }
 
 /// Read a string from NVS, returning None if the key is absent or on error.
@@ -70,6 +100,17 @@ impl Config {
 
         let use_celsius = nvs.get_u8(KEY_USE_CELSIUS).unwrap_or(None).unwrap_or(0) != 0;
         info!("NVS use_celsius = {}", use_celsius);
+        let orientation_mode = nvs_get_str(nvs, KEY_ORIENTATION)
+            .as_deref()
+            .and_then(OrientationMode::parse)
+            .unwrap_or(OrientationMode::Auto);
+        info!("NVS orientation = {}", orientation_mode.as_str());
+        let orientation_flip = nvs
+            .get_u8(KEY_ORIENTATION_FLIP)
+            .unwrap_or(None)
+            .unwrap_or(0)
+            != 0;
+        info!("NVS orientation_flip = {}", orientation_flip);
 
         Config {
             wifi_ssid,
@@ -78,6 +119,8 @@ impl Config {
             weather_query,
             timezone,
             use_celsius,
+            orientation_mode,
+            orientation_flip,
         }
     }
 
@@ -110,6 +153,21 @@ impl Config {
     pub fn save_timezone(nvs: &mut EspNvs<NvsDefault>, tz: &str) -> Result<()> {
         nvs.set_str(KEY_TIMEZONE, tz)?;
         info!("NVS saved timezone={:?}", tz);
+        Ok(())
+    }
+
+    pub fn save_orientation_mode(
+        nvs: &mut EspNvs<NvsDefault>,
+        mode: OrientationMode,
+    ) -> Result<()> {
+        nvs.set_str(KEY_ORIENTATION, mode.as_str())?;
+        info!("NVS saved orientation={}", mode.as_str());
+        Ok(())
+    }
+
+    pub fn save_orientation_flip(nvs: &mut EspNvs<NvsDefault>, flip: bool) -> Result<()> {
+        nvs.set_u8(KEY_ORIENTATION_FLIP, if flip { 1 } else { 0 })?;
+        info!("NVS saved orientation_flip={}", flip);
         Ok(())
     }
 }

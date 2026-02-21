@@ -6,7 +6,9 @@ pub mod wifi_scan;
 pub mod about;
 
 use std::collections::VecDeque;
+use crate::config::OrientationMode;
 use crate::framebuffer::Framebuffer;
+use crate::layout::{self, Orientation};
 use crate::touch::Gesture;
 
 /// Views in navigation order (matches C factory cycle).
@@ -70,6 +72,9 @@ pub struct AppState {
     pub use_celsius: bool,
     pub save_celsius_pref: bool,
     pub force_weather_refresh: bool,
+    pub orientation: Orientation,
+    pub orientation_mode: OrientationMode,
+    pub orientation_flip: bool,
     pub dirty: bool,
 }
 
@@ -97,8 +102,19 @@ impl AppState {
             use_celsius: false,
             save_celsius_pref: false,
             force_weather_refresh: false,
+            orientation: Orientation::Landscape,
+            orientation_mode: OrientationMode::Auto,
+            orientation_flip: false,
             dirty: true,
         }
+    }
+
+    pub fn screen_w(&self) -> i32 {
+        layout::screen_w(self.orientation)
+    }
+
+    pub fn screen_h(&self) -> i32 {
+        layout::screen_h(self.orientation)
     }
 
     /// Handle a touch gesture, returning true if the display needs a redraw.
@@ -142,7 +158,8 @@ impl AppState {
     }
 
     fn handle_tap(&mut self, x: i16, y: i16) -> bool {
-        let screen_w = crate::layout::SCREEN_W as i16;
+        let screen_w = self.screen_w() as i16;
+        let screen_h = self.screen_h() as i16;
 
         // ── Header tap: "Main >" on forecast, or right side of header navigates forward ──
         if y < 30 {
@@ -168,23 +185,33 @@ impl AppState {
 
         // ── NOW view taps ──
         if self.current_view == View::Now {
-            // Tap on temperature area (120..280, 36..100) → toggle F/C
-            if (100..=280).contains(&x) && (36..=110).contains(&y) {
+            let (temp_x0, temp_x1, temp_y0, temp_y1) = match self.orientation {
+                o if o.is_landscape() => (100, 280, 36, 110),
+                _ => (100, 310, 36, 126),
+            };
+            if (temp_x0..=temp_x1).contains(&x) && (temp_y0..=temp_y1).contains(&y) {
                 self.use_celsius = !self.use_celsius;
                 self.save_celsius_pref = true;
                 self.dirty = true;
                 return true;
             }
 
-            // Tap on weather icon area (18..98, 46..126) → force refresh
-            if (10..=105).contains(&x) && (36..=130).contains(&y) {
+            let (icon_x0, icon_x1, icon_y0, icon_y1) = match self.orientation {
+                o if o.is_landscape() => (10, 105, 36, 130),
+                _ => (10, 120, 36, 150),
+            };
+            if (icon_x0..=icon_x1).contains(&x) && (icon_y0..=icon_y1).contains(&y) {
                 self.force_weather_refresh = true;
                 self.dirty = true;
                 return true;
             }
 
             // Tap on forecast card at bottom → navigate to Forecast view
-            if y >= 208 {
+            let forecast_tap_top = match self.orientation {
+                o if o.is_landscape() => 208,
+                _ => 250,
+            };
+            if y >= forecast_tap_top && y < screen_h {
                 self.current_view = View::Forecast;
                 self.dirty = true;
                 return true;

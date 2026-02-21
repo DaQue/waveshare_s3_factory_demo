@@ -18,6 +18,7 @@ const GRAPH_GRID_COLOR: Rgb565 = rgb(40, 48, 58);     // subtle grid
 const GRAPH_BG: Rgb565 = rgb(16, 20, 28);             // dark graph area
 
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     fb.clear_color(BG_INDOOR);
     draw_hline(fb, HEADER_LINE_Y, LINE_COLOR_3);
 
@@ -27,7 +28,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         .draw(fb)
         .ok();
 
-    // Current readings - large display across top
+    // Current readings
     let reading_y = 52;
     let primary_style = MonoTextStyle::new(&PROFONT_24_POINT, TEXT_PRIMARY);
     let label_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
@@ -38,39 +39,53 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         } else {
             format!("{:.1}°F", temp)
         };
-        Text::new(&t, Point::new(20, reading_y), primary_style)
+        let x = 20;
+        let y = reading_y;
+        Text::new(&t, Point::new(x, y), primary_style)
             .draw(fb)
             .ok();
-        Text::new("TEMP", Point::new(20, reading_y + 16), label_style)
+        Text::new("TEMP", Point::new(x, y + 16), label_style)
             .draw(fb)
             .ok();
     }
 
     if let Some(hum) = state.indoor_humidity {
         let t = format!("{:.0}%", hum);
-        Text::new(&t, Point::new(200, reading_y), primary_style)
+        let (x, y) = if state.orientation.is_portrait() {
+            (20, reading_y + 34)
+        } else {
+            (200, reading_y)
+        };
+        Text::new(&t, Point::new(x, y), primary_style)
             .draw(fb)
             .ok();
-        Text::new("HUMIDITY", Point::new(200, reading_y + 16), label_style)
+        Text::new("HUMIDITY", Point::new(x, y + 16), label_style)
             .draw(fb)
             .ok();
     }
 
     if let Some(press) = state.indoor_pressure {
         let t = format!("{:.0}", press);
-        Text::new(&t, Point::new(350, reading_y), primary_style)
+        let (x, y) = if state.orientation.is_portrait() {
+            (20, reading_y + 68)
+        } else {
+            (350, reading_y)
+        };
+        Text::new(&t, Point::new(x, y), primary_style)
             .draw(fb)
             .ok();
-        Text::new("hPa", Point::new(350, reading_y + 16), label_style)
+        Text::new("hPa", Point::new(x, y + 16), label_style)
             .draw(fb)
             .ok();
     }
 
     // Graph area
-    let graph_x = 50;
-    let graph_y = 88;
-    let graph_w = SCREEN_W - graph_x - 16;
-    let graph_h = 180;
+    let (graph_x, graph_y, graph_h) = if state.orientation.is_portrait() {
+        (12, 168, screen_h - 230)
+    } else {
+        (50, 88, 180)
+    };
+    let graph_w = screen_w - graph_x - 16;
 
     // Graph background
     let bg_style = PrimitiveStyleBuilder::new().fill_color(GRAPH_BG).build();
@@ -163,7 +178,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
     Text::with_alignment(
         "(swipe <-/-> or tap header to switch pages)",
-        Point::new(SCREEN_W / 2, SCREEN_H - 4),
+        Point::new(screen_w / 2, screen_h - 4),
         hint_style,
         Alignment::Center,
     )

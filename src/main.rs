@@ -51,6 +51,10 @@ const BME280_INTERVAL_MS: u32 = 5_000;
 const TICK_MS: u64 = 100;
 const TIME_UPDATE_TICKS: u32 = 10; // every second
 const WIFI_DEBUG_TICKS: u32 = 100; // every 10 seconds
+const ORIENTATION_POLL_TICKS: u32 = 2; // every 200ms
+const ORIENTATION_SWITCH_MARGIN_G: f32 = 0.18;
+const ORIENTATION_MAX_Z_G: f32 = 0.85;
+const ORIENTATION_CONFIRM_SAMPLES: u8 = 3;
 
 // ── FFI structs matching the C AXS15231B driver ────────────────────
 
@@ -241,6 +245,53 @@ fn now_ms() -> u32 {
     unsafe { (esp_idf_sys::esp_timer_get_time() / 1000) as u32 }
 }
 
+fn locked_orientation(mode: config::OrientationMode, flip: bool) -> layout::Orientation {
+    match mode {
+        config::OrientationMode::Landscape => {
+            if flip {
+                layout::Orientation::LandscapeFlipped
+            } else {
+                layout::Orientation::Landscape
+            }
+        }
+        config::OrientationMode::Portrait => {
+            if flip {
+                layout::Orientation::PortraitFlipped
+            } else {
+                layout::Orientation::Portrait
+            }
+        }
+        config::OrientationMode::Auto => layout::Orientation::Landscape,
+    }
+}
+
+fn framebuffer_dims(orientation: layout::Orientation) -> (u32, u32) {
+    if orientation.is_landscape() { (480, 320) } else { (320, 480) }
+}
+
+fn detect_orientation_from_imu(r: &qmi8658::ImuReading) -> Option<layout::Orientation> {
+    if r.accel_z.abs() > ORIENTATION_MAX_Z_G {
+        return None;
+    }
+    let ax = r.accel_x.abs();
+    let ay = r.accel_y.abs();
+    if ax > ay + ORIENTATION_SWITCH_MARGIN_G {
+        if r.accel_x >= 0.0 {
+            Some(layout::Orientation::Portrait)
+        } else {
+            Some(layout::Orientation::PortraitFlipped)
+        }
+    } else if ay > ax + ORIENTATION_SWITCH_MARGIN_G {
+        if r.accel_y < 0.0 {
+            Some(layout::Orientation::Landscape)
+        } else {
+            Some(layout::Orientation::LandscapeFlipped)
+        }
+    } else {
+        None
+    }
+}
+
 // ── Display init (mirrors C factory bsp_display_init exactly) ──────
 
 struct LcdContext {
@@ -369,11 +420,13 @@ fn draw_splash(fb: &mut framebuffer::Framebuffer, status: &str) {
 
     let bg = layout::rgb(20, 24, 32);
     fb.clear_color(bg);
+    let cx = (fb.size().width as i32) / 2;
+    let cy = (fb.size().height as i32) / 2;
 
     let title_style = MonoTextStyle::new(&PROFONT_24_POINT, Rgb565::new(28, 56, 31));
     Text::with_alignment(
         "Weather Station",
-        Point::new(240, 110),
+        Point::new(cx, cy - 50),
         title_style,
         Alignment::Center,
     )
@@ -383,7 +436,7 @@ fn draw_splash(fb: &mut framebuffer::Framebuffer, status: &str) {
     let sub_style = MonoTextStyle::new(&PROFONT_18_POINT, Rgb565::new(18, 36, 20));
     Text::with_alignment(
         "Waveshare ESP32-S3 3.5B",
-        Point::new(240, 145),
+        Point::new(cx, cy - 15),
         sub_style,
         Alignment::Center,
     )
@@ -393,7 +446,7 @@ fn draw_splash(fb: &mut framebuffer::Framebuffer, status: &str) {
     let status_style = MonoTextStyle::new(&PROFONT_14_POINT, Rgb565::new(12, 28, 14));
     Text::with_alignment(
         status,
-        Point::new(240, 200),
+        Point::new(cx, cy + 40),
         status_style,
         Alignment::Center,
     )
@@ -417,14 +470,11 @@ fn main() -> Result<()> {
     let ctx = init_display()?;
 
     // Create framebuffer early so we can show a boot screen immediately
-    let mut fb = framebuffer::Framebuffer::new(
-        framebuffer::FB_WIDTH,
-        framebuffer::FB_HEIGHT,
-    );
+    let mut fb = framebuffer::Framebuffer::new(framebuffer::FB_WIDTH, framebuffer::FB_HEIGHT);
 
     // Show splash before backlight so first frame is ready
     draw_splash(&mut fb, "Starting...");
-    fb.flush_to_panel(ctx.io, ctx.panel);
+    fb.flush_to_panel(ctx.io, ctx.panel, layout::Orientation::Landscape);
     enable_backlight();
 
     // ── 3. Peripherals ──
@@ -481,7 +531,7 @@ fn main() -> Result<()> {
     let wifi_ok;
     let _wifi = if !wifi_ssid.is_empty() {
         draw_splash(&mut fb, &format!("Connecting to '{}'...", wifi_ssid));
-        fb.flush_to_panel(ctx.io, ctx.panel);
+        fb.flush_to_panel(ctx.io, ctx.panel, layout::Orientation::Landscape);
         info!("Connecting to WiFi '{}'...", wifi_ssid);
         match wifi::connect_wifi(peripherals.modem, sysloop.clone(), &wifi_ssid, &wifi_pass) {
             Ok(result) => {
@@ -507,7 +557,7 @@ fn main() -> Result<()> {
     // ── 10. NTP time sync ──
     let _sntp = if wifi_ok {
         draw_splash(&mut fb, "Syncing time...");
-        fb.flush_to_panel(ctx.io, ctx.panel);
+        fb.flush_to_panel(ctx.io, ctx.panel, layout::Orientation::Landscape);
         match time_sync::sync_time(&timezone) {
             Ok(sntp) => Some(sntp),
             Err(e) => {
@@ -522,6 +572,16 @@ fn main() -> Result<()> {
     // ── 11. App state ──
     let mut state = views::AppState::new();
     state.use_celsius = cfg.lock().unwrap().use_celsius;
+    {
+        let cfg_guard = cfg.lock().unwrap();
+        state.orientation_mode = cfg_guard.orientation_mode;
+        state.orientation_flip = cfg_guard.orientation_flip;
+    }
+    state.orientation = if state.orientation_mode == config::OrientationMode::Auto {
+        layout::Orientation::Landscape
+    } else {
+        locked_orientation(state.orientation_mode, state.orientation_flip)
+    };
     state.i2c_devices = i2c_devices;
     state.wifi_networks = wifi_networks;
     state.wifi_ssid = wifi_ssid.clone();
@@ -532,6 +592,19 @@ fn main() -> Result<()> {
         state.status_text = "No WiFi".to_string();
     } else {
         state.status_text = "WiFi failed".to_string();
+    }
+
+    if state.orientation_mode == config::OrientationMode::Auto && imu_ok {
+        if let Some(r) = qmi8658::read(&mut i2c) {
+            if let Some(orientation) = detect_orientation_from_imu(&r) {
+                state.orientation = orientation;
+            }
+        }
+    }
+
+    if state.orientation.is_portrait() {
+        let (fb_w, fb_h) = framebuffer_dims(state.orientation);
+        fb = framebuffer::Framebuffer::new(fb_w, fb_h);
     }
 
     // ── 12. Weather fetch thread ──
@@ -591,17 +664,19 @@ fn main() -> Result<()> {
     info!("Entering main loop");
     let mut last_bme_ms: u32 = 0;
     let mut tick_count: u32 = 0;
+    let mut orientation_candidate = state.orientation;
+    let mut orientation_candidate_count: u8 = 0;
 
     // Initial draw
     views::draw_current_view(&mut fb, &state);
-    fb.flush_to_panel(ctx.io, ctx.panel);
+    fb.flush_to_panel(ctx.io, ctx.panel, state.orientation);
     state.dirty = false;
 
     loop {
         let t = now_ms();
 
         // Poll touch
-        let gesture = touch_state.poll(&mut i2c, t);
+        let gesture = touch_state.poll(&mut i2c, t, state.orientation);
         if gesture != touch::Gesture::None
             && state.handle_gesture(gesture) {
                 info!("Gesture {:?} -> view {:?}", gesture, state.current_view);
@@ -680,6 +755,73 @@ fn main() -> Result<()> {
             }
         }
 
+        // Orientation mode updates requested from console
+        if let Some(mode) = debug_flags::take_orientation_mode_request() {
+            state.orientation_mode = mode;
+            if mode != config::OrientationMode::Auto {
+                let target = locked_orientation(mode, state.orientation_flip);
+                if state.orientation != target {
+                    state.orientation = target;
+                    let (fb_w, fb_h) = framebuffer_dims(state.orientation);
+                    fb = framebuffer::Framebuffer::new(fb_w, fb_h);
+                    state.dirty = true;
+                    info!("Orientation: {:?}", state.orientation);
+                }
+            }
+        }
+
+        // Orientation flip updates requested from console
+        if let Some(flip) = debug_flags::take_orientation_flip_request() {
+            state.orientation_flip = flip;
+            if state.orientation_mode != config::OrientationMode::Auto {
+                let target = locked_orientation(state.orientation_mode, state.orientation_flip);
+                if state.orientation != target {
+                    state.orientation = target;
+                    let (fb_w, fb_h) = framebuffer_dims(state.orientation);
+                    fb = framebuffer::Framebuffer::new(fb_w, fb_h);
+                    state.dirty = true;
+                    info!("Orientation: {:?}", state.orientation);
+                }
+            } else {
+                info!("orientation flip ignored in auto mode");
+            }
+        }
+
+        // IMU auto-orientation with hysteresis
+        if imu_ok
+            && state.orientation_mode == config::OrientationMode::Auto
+            && tick_count.is_multiple_of(ORIENTATION_POLL_TICKS)
+        {
+            if let Some(r) = qmi8658::read(&mut i2c) {
+                if let Some(next) = detect_orientation_from_imu(&r) {
+                    if next != state.orientation {
+                        if orientation_candidate == next {
+                            orientation_candidate_count =
+                                orientation_candidate_count.saturating_add(1);
+                        } else {
+                            orientation_candidate = next;
+                            orientation_candidate_count = 1;
+                        }
+                        if orientation_candidate_count >= ORIENTATION_CONFIRM_SAMPLES {
+                            state.orientation = next;
+                            let (fb_w, fb_h) = framebuffer_dims(state.orientation);
+                            fb = framebuffer::Framebuffer::new(fb_w, fb_h);
+                            state.dirty = true;
+                            orientation_candidate_count = 0;
+                            info!("Auto-rotation -> {:?}", state.orientation);
+                        }
+                    } else {
+                        orientation_candidate_count = 0;
+                    }
+                }
+            }
+        }
+
+        // IMU auto-orientation hysteresis state reset when not in auto mode
+        if state.orientation_mode != config::OrientationMode::Auto {
+            orientation_candidate_count = 0;
+        }
+
         // I2C rescan requested from console
         if debug_flags::REQUEST_I2C_SCAN.swap(false, Ordering::Relaxed) {
             info!("I2C rescan...");
@@ -738,7 +880,7 @@ fn main() -> Result<()> {
         // Redraw if needed
         if state.dirty {
             views::draw_current_view(&mut fb, &state);
-            fb.flush_to_panel(ctx.io, ctx.panel);
+            fb.flush_to_panel(ctx.io, ctx.panel, state.orientation);
             state.dirty = false;
         }
 

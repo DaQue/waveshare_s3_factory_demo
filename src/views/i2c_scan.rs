@@ -24,9 +24,10 @@ fn device_name(addr: u8) -> &'static str {
 }
 
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     // Fill background
     let bg_style = PrimitiveStyleBuilder::new().fill_color(BG_I2C).build();
-    Rectangle::new(Point::zero(), Size::new(SCREEN_W as u32, SCREEN_H as u32))
+    Rectangle::new(Point::zero(), Size::new(screen_w as u32, screen_h as u32))
         .into_styled(bg_style)
         .draw(fb)
         .ok();
@@ -43,8 +44,8 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         .ok();
 
     // Card
-    let card_w = SCREEN_W - 20;
-    let card_h = SCREEN_H - 56 - INFO_CARD_Y;
+    let card_w = screen_w - 20;
+    let card_h = screen_h - 56 - INFO_CARD_Y;
     draw_card(
         fb,
         CARD_MARGIN, INFO_CARD_Y,
@@ -64,7 +65,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
         for (i, addr) in state.i2c_devices.iter().enumerate() {
             let y = 76 + (i as i32) * 24;
-            if y > SCREEN_H - 60 {
+            if y > screen_h - 60 {
                 break;
             }
 
@@ -84,7 +85,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     // Bottom text
     let bottom_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
-    Text::new(&state.bottom_text, Point::new(12, SCREEN_H - 12), bottom_style)
+    Text::new(&state.bottom_text, Point::new(12, screen_h - 12), bottom_style)
         .draw(fb)
         .ok();
 }

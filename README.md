@@ -72,3 +72,32 @@ Troubleshooting
   external USB-UART bridge.
 - Build errors about the target: ensure `espup` is installed and the environment
   is loaded with `source /home/david/export-esp.sh`.
+
+Recent Orientation Updates (2026-02-21)
+---------------------------------------
+- Runtime screen orientation now supports all 4 physical directions:
+  - `Landscape` (USB right)
+  - `LandscapeFlipped` (USB left)
+  - `Portrait` (USB bottom)
+  - `PortraitFlipped` (USB top)
+- Auto mode uses the QMI8658 accelerometer with hysteresis to prevent rapid flip noise.
+- Locked mode still uses `landscape`/`portrait`, with optional 180-degree flip.
+- Orientation changes trigger framebuffer reallocation and full redraw.
+- Touch coordinates are remapped per active orientation.
+- Swipe directions are normalized so navigation matches on-screen direction in flipped modes.
+
+Console Commands for Orientation
+--------------------------------
+- `orientation auto`
+- `orientation landscape`
+- `orientation portrait`
+- `orientation flip on`
+- `orientation flip off`
+- `orientation flip toggle`
+- `orientation flip show`
+
+Behavior Notes
+--------------
+- `orientation flip ...` is available only when locked to `landscape` or `portrait`.
+- In `auto` mode, `orientation flip` prints a guidance message and does not apply.
+- Orientation mode and flip are persisted in NVS and survive reboot.

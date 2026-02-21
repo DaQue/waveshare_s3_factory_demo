@@ -52,10 +52,30 @@ pub const TEXT_DETAIL: Rgb565 = rgb(184, 189, 198);
 pub const TEXT_CONDITION: Rgb565 = rgb(166, 208, 255);
 pub const TEXT_BOTTOM: Rgb565 = rgb(140, 148, 160);
 
-// ── Layout constants (landscape: 480w x 320h) ──────────────────────
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    Landscape,
+    LandscapeFlipped,
+    Portrait,
+    PortraitFlipped,
+}
 
-pub const SCREEN_W: i32 = 480;
-pub const SCREEN_H: i32 = 320;
+impl Orientation {
+    pub fn is_landscape(self) -> bool {
+        matches!(self, Orientation::Landscape | Orientation::LandscapeFlipped)
+    }
+
+    pub fn is_portrait(self) -> bool {
+        matches!(self, Orientation::Portrait | Orientation::PortraitFlipped)
+    }
+}
+
+// ── Layout constants ────────────────────────────────────────────────
+
+pub const SCREEN_W_LANDSCAPE: i32 = 480;
+pub const SCREEN_H_LANDSCAPE: i32 = 320;
+pub const SCREEN_W_PORTRAIT: i32 = 320;
+pub const SCREEN_H_PORTRAIT: i32 = 480;
 
 pub const HEADER_LINE_Y: i32 = 30;
 pub const CARD_MARGIN: i32 = 8;
@@ -67,6 +87,26 @@ pub const FORECAST_ROWS: usize = 4;
 // I2C / WiFi / About card
 pub const INFO_CARD_Y: i32 = 40;
 
+pub fn screen_w(orientation: Orientation) -> i32 {
+    if orientation.is_landscape() {
+        SCREEN_W_LANDSCAPE
+    } else {
+        SCREEN_W_PORTRAIT
+    }
+}
+
+pub fn screen_h(orientation: Orientation) -> i32 {
+    if orientation.is_landscape() {
+        SCREEN_H_LANDSCAPE
+    } else {
+        SCREEN_H_PORTRAIT
+    }
+}
+
+pub fn screen_size(orientation: Orientation) -> (i32, i32) {
+    (screen_w(orientation), screen_h(orientation))
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 use crate::framebuffer::Framebuffer;
@@ -75,7 +115,7 @@ use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle, RoundedRec
 /// Fill a horizontal line across the full screen width.
 pub fn draw_hline(fb: &mut Framebuffer, y: i32, color: Rgb565) {
     let style = PrimitiveStyleBuilder::new().fill_color(color).build();
-    Rectangle::new(Point::new(0, y), Size::new(SCREEN_W as u32, 1))
+    Rectangle::new(Point::new(0, y), Size::new(fb.size().width, 1))
         .into_styled(style)
         .draw(fb)
         .ok();

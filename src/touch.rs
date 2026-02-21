@@ -1,5 +1,6 @@
 use esp_idf_hal::i2c::I2cDriver;
 use log::info;
+use crate::layout::Orientation;
 
 macro_rules! dbg_touch {
     ($($arg:tt)*) => {
@@ -61,8 +62,14 @@ impl TouchState {
         }
     }
 
-    /// Poll the touch controller and return any detected gesture.
-    pub fn poll(&mut self, i2c: &mut I2cDriver<'_>, now_ms: u32) -> Gesture {
+    /// Poll the touch controller and return any detected gesture in the active
+    /// logical screen orientation.
+    pub fn poll(
+        &mut self,
+        i2c: &mut I2cDriver<'_>,
+        now_ms: u32,
+        orientation: Orientation,
+    ) -> Gesture {
         self.poll_count += 1;
 
         // Log touch stats every 50 polls (~5 seconds at 100ms tick)
@@ -76,7 +83,8 @@ impl TouchState {
 
         let touch = read_touch(i2c, &mut self.err_count, self.poll_count);
 
-        if let Some((x, y)) = touch {
+        if let Some((px, py)) = touch {
+            let (x, y) = map_to_orientation(px, py, orientation);
             self.touch_count += 1;
             if !self.pressed {
                 self.pressed = true;
@@ -124,6 +132,7 @@ impl TouchState {
         if abs_dy >= TOUCH_SWIPE_MIN_Y_PX && abs_dy >= abs_dx {
             self.last_swipe_ms = now_ms;
             let g = if dy < 0 { Gesture::SwipeUp } else { Gesture::SwipeDown };
+            let g = map_swipe_for_orientation(g, orientation);
             dbg_touch!("TOUCH -> {:?}", g);
             return g;
         }
@@ -132,6 +141,7 @@ impl TouchState {
         if abs_dx >= TOUCH_SWIPE_MIN_X_PX && abs_dy <= TOUCH_SWIPE_MAX_Y_PX && abs_dx > abs_dy {
             self.last_swipe_ms = now_ms;
             let g = if dx < 0 { Gesture::SwipeLeft } else { Gesture::SwipeRight };
+            let g = map_swipe_for_orientation(g, orientation);
             dbg_touch!("TOUCH -> {:?}", g);
             return g;
         }
@@ -142,7 +152,7 @@ impl TouchState {
 }
 
 /// Read touch coordinates from the AXS15231B integrated touch controller.
-/// Returns Some((x, y)) in landscape coordinates if touched, None if not.
+/// Returns Some((x, y)) in the native portrait panel coordinate space.
 fn read_touch(i2c: &mut I2cDriver<'_>, err_count: &mut u32, poll_count: u32) -> Option<(i16, i16)> {
     let mut data = [0u8; 14];
 
@@ -174,11 +184,44 @@ fn read_touch(i2c: &mut I2cDriver<'_>, err_count: &mut u32, poll_count: u32) -> 
     let raw_x = (((data[2] & 0x0F) as u16) << 8) | data[3] as u16;
     let raw_y = (((data[4] & 0x0F) as u16) << 8) | data[5] as u16;
 
-    // Rotate from portrait (320x480) to landscape (480x320)
-    let lx = raw_y as i16;
-    let ly = 319 - raw_x as i16;
+    Some((raw_x as i16, raw_y as i16))
+}
 
-    Some((lx, ly))
+fn map_to_orientation(x: i16, y: i16, orientation: Orientation) -> (i16, i16) {
+    let px = x.clamp(0, (crate::layout::SCREEN_W_PORTRAIT - 1) as i16);
+    let py = y.clamp(0, (crate::layout::SCREEN_H_PORTRAIT - 1) as i16);
+    match orientation {
+        Orientation::Portrait => (px, py),
+        Orientation::PortraitFlipped => (
+            (crate::layout::SCREEN_W_PORTRAIT - 1) as i16 - px,
+            (crate::layout::SCREEN_H_PORTRAIT - 1) as i16 - py,
+        ),
+        Orientation::Landscape => {
+            // portrait(320x480) -> landscape(480x320)
+            let lx = py;
+            let ly = (crate::layout::SCREEN_W_PORTRAIT - 1) as i16 - px;
+            (lx, ly)
+        }
+        Orientation::LandscapeFlipped => {
+            // portrait(320x480) -> landscape flipped (USB on left)
+            let lx = (crate::layout::SCREEN_H_PORTRAIT - 1) as i16 - py;
+            let ly = px;
+            (lx, ly)
+        }
+    }
+}
+
+fn map_swipe_for_orientation(g: Gesture, orientation: Orientation) -> Gesture {
+    match orientation {
+        Orientation::LandscapeFlipped | Orientation::PortraitFlipped => match g {
+            Gesture::SwipeLeft => Gesture::SwipeRight,
+            Gesture::SwipeRight => Gesture::SwipeLeft,
+            Gesture::SwipeUp => Gesture::SwipeDown,
+            Gesture::SwipeDown => Gesture::SwipeUp,
+            _ => g,
+        },
+        _ => g,
+    }
 }
 
 /// One-time diagnostic: try multiple approaches to communicate with touch controller.

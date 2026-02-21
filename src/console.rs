@@ -61,6 +61,7 @@ fn process_line(
         "help" | "?" => print_help(),
         "wifi" => handle_wifi(sub, rest, nvs, config)?,
         "api" => handle_api(sub, rest, nvs, config)?,
+        "orientation" => handle_orientation(sub, rest, nvs, config)?,
         "i2c" => handle_i2c(sub),
         "imu" => handle_imu(sub),
         "debug" => handle_debug(sub),
@@ -69,6 +70,8 @@ fn process_line(
             info!("wifi: {}", if cfg.wifi_ssid.is_empty() { "not configured" } else { &cfg.wifi_ssid });
             info!("api key: {} chars", cfg.weather_api_key.len());
             info!("query: {}", cfg.weather_query);
+            info!("orientation: {}", cfg.orientation_mode.as_str());
+            info!("orientation flip: {}", if cfg.orientation_flip { "on" } else { "off" });
             let heap_kb = unsafe { esp_idf_sys::esp_get_free_heap_size() } / 1024;
             info!("free heap: {} KB", heap_kb);
             info!("debug: {}", crate::debug_flags::status_line());
@@ -97,6 +100,8 @@ fn print_help() {
     info!("  api set-key <key>          - set OpenWeather API key");
     info!("  api set-query <query>      - set location query");
     info!("  api clear                  - clear API overrides");
+    info!("  orientation auto|landscape|portrait");
+    info!("  orientation flip on|off|toggle|show");
     info!("  debug <module>             - toggle debug for module");
     info!("    modules: touch, bme280, wifi, weather, imu, all");
     info!("  debug show                 - show debug flag status");
@@ -156,6 +161,64 @@ fn handle_i2c(sub: &str) {
         }
         _ => info!("usage: i2c scan"),
     }
+}
+
+fn handle_orientation(
+    sub: &str,
+    rest: &str,
+    nvs: &Arc<Mutex<EspNvs<NvsDefault>>>,
+    config: &Arc<Mutex<Config>>,
+) -> Result<()> {
+    if sub.is_empty() || sub == "show" {
+        let cfg = config.lock().unwrap();
+        info!("orientation: {}", cfg.orientation_mode.as_str());
+        info!("orientation flip: {}", if cfg.orientation_flip { "on" } else { "off" });
+        return Ok(());
+    }
+
+    if sub == "flip" {
+        let mut cfg = config.lock().unwrap();
+        if cfg.orientation_mode == crate::config::OrientationMode::Auto {
+            info!("orientation flip is unavailable in auto mode");
+            info!("pick landscape or portrait first");
+            return Ok(());
+        }
+        let flip = match rest {
+            "" | "toggle" => !cfg.orientation_flip,
+            "show" => {
+                info!("orientation flip: {}", if cfg.orientation_flip { "on" } else { "off" });
+                return Ok(());
+            }
+            "on" | "1" | "true" => true,
+            "off" | "0" | "false" => false,
+            _ => {
+                info!("usage: orientation flip on|off|toggle|show");
+                return Ok(());
+            }
+        };
+        {
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_orientation_flip(&mut nvs, flip)?;
+        }
+        cfg.orientation_flip = flip;
+        crate::debug_flags::request_orientation_flip(flip);
+        info!("orientation flip: {}", if flip { "on" } else { "off" });
+        return Ok(());
+    }
+
+    let Some(mode) = crate::config::OrientationMode::parse(sub) else {
+        info!("usage: orientation auto|landscape|portrait");
+        return Ok(());
+    };
+
+    {
+        let mut nvs = nvs.lock().unwrap();
+        Config::save_orientation_mode(&mut nvs, mode)?;
+    }
+    config.lock().unwrap().orientation_mode = mode;
+    crate::debug_flags::request_orientation_mode(mode);
+    info!("orientation set to {}", mode.as_str());
+    Ok(())
 }
 
 fn handle_imu(sub: &str) {

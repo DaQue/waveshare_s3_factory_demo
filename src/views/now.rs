@@ -14,6 +14,7 @@ fn f_to_c(f: f32) -> f32 {
 }
 
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     fb.clear_color(BG_NOW);
     draw_hline(fb, HEADER_LINE_Y, LINE_COLOR_1);
 
@@ -27,7 +28,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         let city_text = format!("{}, {}", cw.city, cw.country);
         Text::with_alignment(
             &city_text,
-            Point::new(SCREEN_W / 2, 24),
+            Point::new(screen_w / 2, 24),
             header_style,
             Alignment::Center,
         )
@@ -38,30 +39,28 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let status_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_STATUS);
     Text::with_alignment(
         &state.status_text,
-        Point::new(SCREEN_W - 8, 24),
+        Point::new(screen_w - 8, 24),
         status_style,
         Alignment::Right,
     )
     .draw(fb)
     .ok();
 
-    // Main weather card
     let card_top = 36;
-    let card_h = 148;
+    let card_h = if state.orientation.is_portrait() { 178 } else { 148 };
     draw_card(
         fb,
-        CARD_MARGIN, card_top,
-        SCREEN_W - 2 * CARD_MARGIN, card_h,
+        CARD_MARGIN,
+        card_top,
+        screen_w - 2 * CARD_MARGIN,
+        card_h,
         CARD_RADIUS as u32,
-        CARD_FILL_NOW, CARD_BORDER_NOW, 1,
+        CARD_FILL_NOW,
+        CARD_BORDER_NOW,
+        1,
     );
 
-    // Weather icon (80x80)
-    let icon = state
-        .current_weather
-        .as_ref()
-        .map(|w| w.icon)
-        .unwrap_or_default();
+    let icon = state.current_weather.as_ref().map(|w| w.icon).unwrap_or_default();
     icon.draw_80(fb, 18, card_top + 10);
 
     if let Some(cw) = &state.current_weather {
@@ -71,45 +70,33 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
             (cw.temp_f, cw.feels_f, "F")
         };
 
-        // Large temperature
         let temp_text = format!("{:.0}°{}", temp, unit);
         let temp_style = MonoTextStyle::new(&PROFONT_24_POINT, TEXT_PRIMARY);
-        Text::new(&temp_text, Point::new(120, card_top + 46), temp_style)
-            .draw(fb)
-            .ok();
-
-        // "FEELS XX°"
         let feels_text = format!("FEELS {:.0}°", feels);
         let feels_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_CONDITION);
-        Text::new(&feels_text, Point::new(120, card_top + 72), feels_style)
-            .draw(fb)
-            .ok();
-
-        // Condition description
         let cond_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_DETAIL);
-        Text::new(&cw.condition, Point::new(120, card_top + 94), cond_style)
-            .draw(fb)
-            .ok();
-
-        // Stats line
         let stats_text = format!(
             "Hum {}%  Wind {:.0}mph  {} hPa",
             cw.humidity, cw.wind_mph, cw.pressure_hpa
         );
         let stats_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
-        Text::new(&stats_text, Point::new(18, card_top + 120), stats_style)
-            .draw(fb)
-            .ok();
-
-        // Tap hint
         let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
-        Text::new(
-            "(tap temp = F/C)   (tap icon = refresh)",
-            Point::new(18, card_top + 138),
-            hint_style,
-        )
-        .draw(fb)
-        .ok();
+
+        Text::new(&temp_text, Point::new(120, card_top + 46), temp_style).draw(fb).ok();
+        Text::new(&feels_text, Point::new(120, card_top + 72), feels_style).draw(fb).ok();
+        Text::new(&cw.condition, Point::new(120, card_top + 94), cond_style).draw(fb).ok();
+
+        if state.orientation.is_portrait() {
+            Text::new(&stats_text, Point::new(18, card_top + 124), stats_style).draw(fb).ok();
+            Text::new("(tap temp = F/C)   (tap icon = refresh)", Point::new(18, card_top + 144), hint_style)
+                .draw(fb)
+                .ok();
+        } else {
+            Text::new(&stats_text, Point::new(18, card_top + 120), stats_style).draw(fb).ok();
+            Text::new("(tap temp = F/C)   (tap icon = refresh)", Point::new(18, card_top + 138), hint_style)
+                .draw(fb)
+                .ok();
+        }
     } else {
         let no_data_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_DETAIL);
         Text::new("Waiting for weather data...", Point::new(120, card_top + 60), no_data_style)
@@ -117,7 +104,6 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
             .ok();
     }
 
-    // Indoor info strip (compact single line below main card)
     let strip_y = card_top + card_h + 6;
     let indoor_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
     let mut indoor_text = String::from("Indoor:");
@@ -135,18 +121,19 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         .draw(fb)
         .ok();
 
-    // Forecast: 4 days side-by-side across full width
     let fc_top = strip_y + 18;
-    let fc_h = SCREEN_H - fc_top - 18;
-    let col_count = 4;
-    let col_w = (SCREEN_W - 2 * CARD_MARGIN) / col_count;
+    let fc_h = screen_h - fc_top - 18;
 
     draw_card(
         fb,
-        CARD_MARGIN, fc_top,
-        SCREEN_W - 2 * CARD_MARGIN, fc_h,
+        CARD_MARGIN,
+        fc_top,
+        screen_w - 2 * CARD_MARGIN,
+        fc_h,
         10,
-        CARD_FILL_FORECAST_PREVIEW, CARD_BORDER_FORECAST_PREVIEW, 1,
+        CARD_FILL_FORECAST_PREVIEW,
+        CARD_BORDER_FORECAST_PREVIEW,
+        1,
     );
 
     // "Forecast >" label top-left of card
@@ -159,32 +146,49 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
         let day_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_TERTIARY);
         let temp_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_SECONDARY);
 
-        for (i, row) in fc.rows.iter().take(col_count as usize).enumerate() {
-            let cx = CARD_MARGIN + (i as i32) * col_w + col_w / 2;
-
-            // Day name centered
-            Text::with_alignment(
-                &row.title,
-                Point::new(cx, fc_top + 30),
-                day_style,
-                Alignment::Center,
-            )
-            .draw(fb)
-            .ok();
-
-            // Icon (36x36) centered
-            row.icon.draw_36(fb, cx - 18, fc_top + 34);
-
-            // Temperature centered below icon
-            let temp_label = format!("{}°", row.temp_f);
-            Text::with_alignment(
-                &temp_label,
-                Point::new(cx, fc_top + fc_h - 6),
-                temp_style,
-                Alignment::Center,
-            )
-            .draw(fb)
-            .ok();
+        if state.orientation.is_portrait() {
+            let rows = 4i32;
+            let row_h = (fc_h - 24).max(40) / rows;
+            for (i, row) in fc.rows.iter().take(rows as usize).enumerate() {
+                let y = fc_top + 24 + (i as i32) * row_h;
+                row.icon.draw_36(fb, CARD_MARGIN + 10, y);
+                Text::new(&row.title, Point::new(CARD_MARGIN + 54, y + 14), day_style)
+                    .draw(fb)
+                    .ok();
+                let temp_label = format!("{}°", row.temp_f);
+                Text::with_alignment(
+                    &temp_label,
+                    Point::new(screen_w - CARD_MARGIN - 10, y + 22),
+                    temp_style,
+                    Alignment::Right,
+                )
+                .draw(fb)
+                .ok();
+            }
+        } else {
+            let col_count = 4;
+            let col_w = (screen_w - 2 * CARD_MARGIN) / col_count;
+            for (i, row) in fc.rows.iter().take(col_count as usize).enumerate() {
+                let cx = CARD_MARGIN + (i as i32) * col_w + col_w / 2;
+                Text::with_alignment(
+                    &row.title,
+                    Point::new(cx, fc_top + 30),
+                    day_style,
+                    Alignment::Center,
+                )
+                .draw(fb)
+                .ok();
+                row.icon.draw_36(fb, cx - 18, fc_top + 34);
+                let temp_label = format!("{}°", row.temp_f);
+                Text::with_alignment(
+                    &temp_label,
+                    Point::new(cx, fc_top + fc_h - 6),
+                    temp_style,
+                    Alignment::Center,
+                )
+                .draw(fb)
+                .ok();
+            }
         }
     }
 
@@ -192,7 +196,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
     Text::with_alignment(
         "(swipe <-/-> or tap header to switch pages)",
-        Point::new(SCREEN_W / 2, SCREEN_H - 4),
+        Point::new(screen_w / 2, screen_h - 4),
         hint_style,
         Alignment::Center,
     )

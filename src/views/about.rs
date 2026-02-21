@@ -9,6 +9,7 @@ use crate::layout::*;
 use crate::views::AppState;
 
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     fb.clear_color(BG_ABOUT);
     draw_hline(fb, HEADER_LINE_Y, LINE_COLOR_1);
 
@@ -19,11 +20,11 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 
     // Card
     let card_y = 38;
-    let card_h = SCREEN_H - card_y - 20;
+    let card_h = screen_h - card_y - 20;
     draw_card(
         fb,
         CARD_MARGIN, card_y,
-        SCREEN_W - 2 * CARD_MARGIN, card_h,
+        screen_w - 2 * CARD_MARGIN, card_h,
         CARD_RADIUS as u32,
         CARD_FILL_INDOOR, CARD_BORDER_INDOOR, 1,
     );
@@ -31,7 +32,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let label_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_SECONDARY);
     let value_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_TERTIARY);
     let lx = CARD_MARGIN + 16;
-    let vx = 200;
+    let vx = if state.orientation.is_portrait() { 132 } else { 200 };
     let mut y = card_y + 24;
     let line_h = 24;
 
@@ -105,7 +106,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
     Text::with_alignment(
         "(swipe <-/-> or tap header to switch pages)",
-        Point::new(SCREEN_W / 2, SCREEN_H - 4),
+        Point::new(screen_w / 2, screen_h - 4),
         hint_style,
         Alignment::Center,
     )

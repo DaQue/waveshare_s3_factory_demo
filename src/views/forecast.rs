@@ -9,6 +9,7 @@ use crate::layout::*;
 use crate::views::AppState;
 
 pub fn draw(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     fb.clear_color(BG_FORECAST);
     draw_hline(fb, HEADER_LINE_Y, LINE_COLOR_1);
 
@@ -22,7 +23,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
     let hint_style = MonoTextStyle::new(&PROFONT_10_POINT, TEXT_BOTTOM);
     Text::with_alignment(
         "(swipe <-/-> or tap header to switch pages)",
-        Point::new(SCREEN_W / 2, SCREEN_H - 4),
+        Point::new(screen_w / 2, screen_h - 4),
         hint_style,
         Alignment::Center,
     )
@@ -31,6 +32,7 @@ pub fn draw(fb: &mut Framebuffer, state: &AppState) {
 }
 
 fn draw_daily(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     let header_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_HEADER);
     Text::new("Forecast", Point::new(14, 24), header_style)
         .draw(fb)
@@ -40,14 +42,14 @@ fn draw_daily(fb: &mut Framebuffer, state: &AppState) {
     let nav_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_CONDITION);
     Text::with_alignment(
         "Main >",
-        Point::new(SCREEN_W - 10, 24),
+        Point::new(screen_w - 10, 24),
         nav_style,
         Alignment::Right,
     )
     .draw(fb)
     .ok();
 
-    let card_w = SCREEN_W - 2 * CARD_MARGIN;
+    let card_w = screen_w - 2 * CARD_MARGIN;
     let row_h = 60;
     let row_stride = 66;
     let row_y_base = 38;
@@ -87,7 +89,7 @@ fn draw_daily(fb: &mut Framebuffer, state: &AppState) {
             let temp_style = MonoTextStyle::new(&PROFONT_24_POINT, TEXT_PRIMARY);
             Text::with_alignment(
                 &row.temp_text,
-                Point::new(SCREEN_W - CARD_MARGIN - 14, y + 38),
+                Point::new(screen_w - CARD_MARGIN - 14, y + 38),
                 temp_style,
                 Alignment::Right,
             )
@@ -96,13 +98,14 @@ fn draw_daily(fb: &mut Framebuffer, state: &AppState) {
         }
     } else {
         let placeholder_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_DETAIL);
-        Text::new("No forecast data", Point::new(60, SCREEN_H / 2), placeholder_style)
+        Text::new("No forecast data", Point::new(60, screen_h / 2), placeholder_style)
             .draw(fb)
             .ok();
     }
 }
 
 fn draw_hourly(fb: &mut Framebuffer, state: &AppState) {
+    let (screen_w, screen_h) = screen_size(state.orientation);
     let header_style = MonoTextStyle::new(&PROFONT_14_POINT, TEXT_HEADER);
 
     // Get day title
@@ -119,14 +122,14 @@ fn draw_hourly(fb: &mut Framebuffer, state: &AppState) {
     let nav_style = MonoTextStyle::new(&PROFONT_12_POINT, TEXT_CONDITION);
     Text::with_alignment(
         "Main >",
-        Point::new(SCREEN_W - 10, 24),
+        Point::new(screen_w - 10, 24),
         nav_style,
         Alignment::Right,
     )
     .draw(fb)
     .ok();
 
-    let card_w = SCREEN_W - 2 * CARD_MARGIN;
+    let card_w = screen_w - 2 * CARD_MARGIN;
     let row_h = 60;
     let row_stride = 66;
     let row_y_base = 38;
@@ -169,7 +172,7 @@ fn draw_hourly(fb: &mut Framebuffer, state: &AppState) {
                 let temp_style = MonoTextStyle::new(&PROFONT_24_POINT, TEXT_PRIMARY);
                 Text::with_alignment(
                     &entry.temp_text,
-                    Point::new(SCREEN_W - CARD_MARGIN - 14, y + 38),
+                    Point::new(screen_w - CARD_MARGIN - 14, y + 38),
                     temp_style,
                     Alignment::Right,
                 )
@@ -188,7 +191,7 @@ fn draw_hourly(fb: &mut Framebuffer, state: &AppState) {
                 );
                 Text::with_alignment(
                     &indicator,
-                    Point::new(SCREEN_W / 2, SCREEN_H - 18),
+                    Point::new(screen_w / 2, screen_h - 18),
                     indicator_style,
                     Alignment::Center,
                 )
