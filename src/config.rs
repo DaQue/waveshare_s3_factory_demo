@@ -19,11 +19,14 @@ const KEY_NWS_USER_AGENT: &str = "nws_ua";
 const KEY_NWS_SCOPE: &str = "nws_scope";
 const KEY_NWS_ZONE: &str = "nws_zone";
 
-const DEFAULT_WIFI_SSID: &str = "YOUR_WIFI_SSID";
-const DEFAULT_WIFI_PASS: &str = "A7MZLB2nCuvUqIrpBQB";
-const DEFAULT_WX_API_KEY: &str = "YOUR_API_KEY_HERE";
+const DEFAULT_WIFI_SSID: &str = "";
+const DEFAULT_WIFI_PASS: &str = "";
+const DEFAULT_WX_API_KEY: &str = "";
 const DEFAULT_WEATHER_QUERY: &str = "zip=00000,US";
 const DEFAULT_TIMEZONE: &str = "CST6CDT,M3.2.0,M11.1.0";
+const DEFAULT_USE_CELSIUS: bool = false;
+const DEFAULT_ALERTS_ENABLED: bool = true;
+const DEFAULT_ALERTS_AUTO_SCOPE: bool = true;
 const DEFAULT_FLASH_TIME: &str = "unknown";
 const DEFAULT_NWS_USER_AGENT: &str =
     concat!("waveshare_s3_3p/", env!("CARGO_PKG_VERSION"), " (contact: unset)");
@@ -90,19 +93,43 @@ fn nvs_get_str(nvs: &EspNvs<NvsDefault>, key: &str) -> Option<String> {
     }
 }
 
+fn env_nonempty(v: Option<&'static str>) -> Option<String> {
+    v.and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+pub fn local_secret_fallbacks() -> (Option<String>, Option<String>, Option<String>) {
+    (
+        env_nonempty(option_env!("LOCAL_WIFI_SSID")),
+        env_nonempty(option_env!("LOCAL_WIFI_PASS")),
+        env_nonempty(option_env!("LOCAL_OPENWEATHER_API_KEY")),
+    )
+}
+
 impl Config {
     /// Load configuration from NVS, falling back to defaults for any missing
     /// keys.
     pub fn load(nvs: &EspNvs<NvsDefault>) -> Config {
+        let (local_ssid, local_pass, local_api_key) = local_secret_fallbacks();
+
         let wifi_ssid = nvs_get_str(nvs, KEY_WIFI_SSID)
+            .or(local_ssid)
             .unwrap_or_else(|| DEFAULT_WIFI_SSID.to_string());
         info!("NVS wifi_ssid = {:?}", wifi_ssid);
 
         let wifi_pass = nvs_get_str(nvs, KEY_WIFI_PASS)
+            .or(local_pass)
             .unwrap_or_else(|| DEFAULT_WIFI_PASS.to_string());
         info!("NVS wifi_pass = <{} chars>", wifi_pass.len());
 
         let weather_api_key = nvs_get_str(nvs, KEY_WX_API_KEY)
+            .or(local_api_key)
             .unwrap_or_else(|| DEFAULT_WX_API_KEY.to_string());
         info!("NVS wx_api_key = <{} chars>", weather_api_key.len());
 
@@ -114,7 +141,11 @@ impl Config {
             .unwrap_or_else(|| DEFAULT_TIMEZONE.to_string());
         info!("NVS timezone = {:?}", timezone);
 
-        let use_celsius = nvs.get_u8(KEY_USE_CELSIUS).unwrap_or(None).unwrap_or(0) != 0;
+        let use_celsius = nvs
+            .get_u8(KEY_USE_CELSIUS)
+            .unwrap_or(None)
+            .map(|v| v != 0)
+            .unwrap_or(DEFAULT_USE_CELSIUS);
         info!("NVS use_celsius = {}", use_celsius);
         let orientation_mode = nvs_get_str(nvs, KEY_ORIENTATION)
             .as_deref()
@@ -133,14 +164,14 @@ impl Config {
         let alerts_enabled = nvs
             .get_u8(KEY_ALERTS_ENABLED)
             .unwrap_or(None)
-            .unwrap_or(0)
-            != 0;
+            .map(|v| v != 0)
+            .unwrap_or(DEFAULT_ALERTS_ENABLED);
         info!("NVS alerts_enabled = {}", alerts_enabled);
         let alerts_auto_scope = nvs
             .get_u8(KEY_ALERTS_AUTO_SCOPE)
             .unwrap_or(None)
-            .unwrap_or(0)
-            != 0;
+            .map(|v| v != 0)
+            .unwrap_or(DEFAULT_ALERTS_AUTO_SCOPE);
         info!("NVS alerts_auto_scope = {}", alerts_auto_scope);
         let nws_user_agent = nvs_get_str(nvs, KEY_NWS_USER_AGENT)
             .unwrap_or_else(|| DEFAULT_NWS_USER_AGENT.to_string());

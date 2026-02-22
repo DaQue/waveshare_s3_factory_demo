@@ -471,6 +471,17 @@ fn draw_splash(fb: &mut framebuffer::Framebuffer, status: &str) {
     .draw(fb)
     .ok();
 
+    let version_style = MonoTextStyle::new(&PROFONT_14_POINT, Rgb565::new(12, 28, 14));
+    let version_text = format!("v{}", env!("CARGO_PKG_VERSION"));
+    Text::with_alignment(
+        &version_text,
+        Point::new(cx, cy + 10),
+        version_style,
+        Alignment::Center,
+    )
+    .draw(fb)
+    .ok();
+
     let status_style = MonoTextStyle::new(&PROFONT_14_POINT, Rgb565::new(12, 28, 14));
     Text::with_alignment(
         status,

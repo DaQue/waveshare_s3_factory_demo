@@ -76,6 +76,8 @@ fn process_line(
         "help" | "?" => print_help(),
         "wifi" => handle_wifi(sub, rest, nvs, config)?,
         "api" => handle_api(sub, rest, nvs, config)?,
+        "units" => handle_units(sub, nvs, config)?,
+        "secrets" => handle_secrets(sub, nvs, config)?,
         "alerts" => handle_alerts(sub, rest, nvs, config)?,
         "flash" => handle_flash(sub, rest, nvs, config)?,
         "orientation" => handle_orientation(sub, rest, nvs, config)?,
@@ -123,6 +125,9 @@ fn print_help() {
     info!("  api set-key <key>          - set OpenWeather API key");
     info!("  api set-query <query>      - set location query");
     info!("  api clear                  - clear API overrides");
+    info!("  units f|c|show             - set/show temperature units");
+    info!("  secrets show               - show local fallback availability");
+    info!("  secrets seed-local         - save wifi.local.rs values into NVS");
     info!("  alerts show                - show alert settings");
     info!("  alerts on|off              - enable/disable NWS alerts");
     info!("  alerts auto-scope on|off   - auto-discover NWS zone from Wi-Fi");
@@ -249,6 +254,33 @@ fn handle_orientation(
     config.lock().unwrap().orientation_mode = mode;
     crate::debug_flags::request_orientation_mode(mode);
     info!("orientation set to {}", mode.as_str());
+    Ok(())
+}
+
+fn handle_units(
+    sub: &str,
+    nvs: &Arc<Mutex<EspNvs<NvsDefault>>>,
+    config: &Arc<Mutex<Config>>,
+) -> Result<()> {
+    match sub {
+        "" | "show" => {
+            let cfg = config.lock().unwrap();
+            info!("units: {}", if cfg.use_celsius { "C" } else { "F" });
+        }
+        "f" | "fahrenheit" => {
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_use_celsius(&mut nvs, false)?;
+            config.lock().unwrap().use_celsius = false;
+            info!("units set to F");
+        }
+        "c" | "celsius" => {
+            let mut nvs = nvs.lock().unwrap();
+            Config::save_use_celsius(&mut nvs, true)?;
+            config.lock().unwrap().use_celsius = true;
+            info!("units set to C");
+        }
+        _ => info!("usage: units f|c|show"),
+    }
     Ok(())
 }
 
@@ -408,6 +440,63 @@ fn handle_api(
             info!("API overrides cleared (defaults restored)");
         }
         _ => print_help(),
+    }
+    Ok(())
+}
+
+fn handle_secrets(
+    sub: &str,
+    nvs: &Arc<Mutex<EspNvs<NvsDefault>>>,
+    config: &Arc<Mutex<Config>>,
+) -> Result<()> {
+    let (local_ssid, local_pass, local_api_key) = crate::config::local_secret_fallbacks();
+    match sub {
+        "" | "show" => {
+            info!(
+                "local wifi ssid: {}",
+                local_ssid.as_deref().unwrap_or("<unset>")
+            );
+            info!(
+                "local wifi pass: {}",
+                local_pass
+                    .as_ref()
+                    .map(|v| format!("<{} chars>", v.len()))
+                    .unwrap_or_else(|| "<unset>".to_string())
+            );
+            info!(
+                "local api key: {}",
+                local_api_key
+                    .as_ref()
+                    .map(|v| format!("<{} chars>", v.len()))
+                    .unwrap_or_else(|| "<unset>".to_string())
+            );
+        }
+        "seed-local" => {
+            let Some(ssid) = local_ssid else {
+                info!("secrets: LOCAL_WIFI_SSID is unset");
+                return Ok(());
+            };
+            let Some(pass) = local_pass else {
+                info!("secrets: LOCAL_WIFI_PASS is unset");
+                return Ok(());
+            };
+            let Some(api_key) = local_api_key else {
+                info!("secrets: LOCAL_OPENWEATHER_API_KEY is unset");
+                return Ok(());
+            };
+
+            {
+                let mut n = nvs.lock().unwrap();
+                Config::save_wifi(&mut n, &ssid, &pass)?;
+                Config::save_weather_api_key(&mut n, &api_key)?;
+            }
+            let mut cfg = config.lock().unwrap();
+            cfg.wifi_ssid = ssid;
+            cfg.wifi_pass = pass;
+            cfg.weather_api_key = api_key;
+            info!("secrets: local values saved to NVS");
+        }
+        _ => info!("usage: secrets show|seed-local"),
     }
     Ok(())
 }

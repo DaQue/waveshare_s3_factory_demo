@@ -41,6 +41,42 @@ To skip sudo (if you already have device permissions):
 ./scripts/flash.sh --no-sudo
 ```
 
+Local Secrets (`wifi.local.rs`)
+-------------------------------
+- `wifi.local.rs` is git-ignored and intended for local credentials.
+- The file is read at build time and used only as fallback defaults.
+- Precedence at runtime is:
+  - `NVS` values (if previously set via console), then
+  - `wifi.local.rs` values embedded at build time, then
+  - built-in safe defaults (empty SSID/pass/API key).
+- Create/edit flow:
+  1. Copy `wifi.local.rs.example` to `wifi.local.rs`.
+  2. Edit `WIFI_SSID`, `WIFI_PASS`, `OPENWEATHER_API_KEY`.
+  3. Rebuild/flash.
+- Console support for migration:
+  - `secrets show` (shows whether local fallback values are present at build time)
+  - `secrets seed-local` (copies local fallback values into NVS)
+- After you set values via console (`wifi set ...`, `api set-key ...`), NVS will override
+  `wifi.local.rs` on future boots.
+
+NVS Encryption Transition (No Retyping)
+---------------------------------------
+- Keep `wifi.local.rs` populated (git-ignored).
+- NVS encryption is enabled by project defaults (`CONFIG_NVS_ENCRYPTION=y`) and uses
+  ESP-IDF built-in partition table `partitions_singleapp_encr_nvs.csv`.
+- Flash and boot the encrypted-NVS firmware once.
+- Run:
+  - `secrets seed-local`
+- This persists local fallback secrets into NVS so future boots can ignore local fallback.
+- Verify:
+  - `wifi show`
+  - `api show`
+  - `status`
+- Runtime defaults when keys are missing:
+  - units: Fahrenheit (`F`)
+  - alerts: enabled
+  - alerts auto-scope: enabled
+
 Trial Flow
 ----------
 1) Open the monitor (via `cargo +esp run ...` or `./scripts/flash.sh`).
@@ -75,7 +111,7 @@ Troubleshooting
 
 Recent Orientation Updates (2026-02-21)
 ---------------------------------------
-- Firmware/package version is now `0.2.0`.
+- Firmware/package version is now `0.2.1`.
 - Runtime screen orientation now supports all 4 physical directions:
   - `Landscape` (USB right)
   - `LandscapeFlipped` (USB left)
@@ -127,6 +163,7 @@ NWS Alerts (Current)
 
 Console Commands for Alerts / Metadata
 --------------------------------------
+- `units show|f|c`
 - `alerts show`
 - `alerts on`
 - `alerts off`

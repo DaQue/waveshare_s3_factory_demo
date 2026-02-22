@@ -1,0 +1,11 @@
+// wifi.local.rs
+// Local-only secrets. Copy to wifi.local.rs and edit values.
+// This file format is read at build time by build.rs.
+// NVS values take precedence once set from console commands.
+
+pub const WIFI_SSID: &str = "YOUR_WIFI_SSID";
+pub const WIFI_PASS: &str = "YOUR_WIFI_PASSWORD";
+pub const OPENWEATHER_API_KEY: &str = "YOUR_OPENWEATHER_API_KEY";
+
+// Optional placeholder for future use.
+pub const TZ_OFFSET_SECS: i32 = -6 * 3600;
